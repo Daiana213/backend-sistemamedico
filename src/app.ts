@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { errorHandler } from './middlewares/errorHandler';
 import { notFoundHandler } from './middlewares/notFoundHandler';
 import authRoutes from './routes/authRoutes';
+import pacienteRoutes from './routes/pacienteRoutes';
 
 const app: Application = express();
 
@@ -26,7 +27,7 @@ app.get('/health', (req, res) => {
 
 // ---- Rutas del sistema: se van agregando a medida que implementemos cada HU ----
 app.use('/auth', authRoutes);
-// app.use('/pacientes', pacienteRoutes);
+app.use('/pacientes', pacienteRoutes);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas
 app.use(notFoundHandler);
