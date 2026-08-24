@@ -262,3 +262,185 @@ model Auditoria {
 
   @@map("auditoria")
 }
+
+model administrativo {
+  id_administrativo        Int           @id @default(autoincrement())
+  id_usuario               Int           @unique
+  puesto                   String        @db.VarChar(100)
+  permiso_gestion_usuarios Boolean       @default(false)
+  estado                   estado_activo
+  usuario                  usuario       @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model auditoria {
+  id_auditoria         Int      @id @default(autoincrement())
+  id_usuario           Int?
+  fecha_hora           DateTime @db.Timestamp(6)
+  accion               String   @db.VarChar(50)
+  tabla_afectada       String   @db.VarChar(100)
+  id_registro_afectado Int?
+  datos_anteriores     String?
+  datos_nuevos         String?
+  ip                   String?  @db.VarChar(45)
+  descripcion          String?  @db.VarChar(500)
+  usuario              usuario? @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model documento_responsable {
+  id_documento         Int                  @id @default(autoincrement())
+  id_paciente          Int
+  id_responsable       Int
+  tipo_documento       String               @db.VarChar(50)
+  nombre_archivo       String               @db.VarChar(255)
+  ruta_archivo         String               @db.VarChar(500)
+  fecha_carga          DateTime             @db.Timestamp(6)
+  estado_validacion    estado_validacion
+  observaciones        String?              @db.VarChar(500)
+  paciente_responsable paciente_responsable @relation(fields: [id_paciente, id_responsable], references: [id_paciente, id_responsable], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model especialidad {
+  id_especialidad          Int                        @id @default(autoincrement())
+  nombre                   String                     @unique @db.VarChar(100)
+  descripcion              String?                    @db.VarChar(255)
+  estado                   estado_activo
+  profesional_especialidad profesional_especialidad[]
+}
+
+model obra_social {
+  id_obra_social Int           @id @default(autoincrement())
+  nombre         String        @unique @db.VarChar(100)
+  descripcion    String?       @db.VarChar(255)
+  estado         estado_activo
+  plan           plan[]
+}
+
+model paciente {
+  id_paciente                                                        Int                    @id @default(autoincrement())
+  id_usuario                                                         Int                    @unique
+  fecha_nacimiento                                                   DateTime               @db.Date
+  sexo                                                               sexo
+  id_plan                                                            Int?
+  estado                                                             estado_paciente
+  fecha_registro                                                     DateTime               @db.Timestamp(6)
+  plan                                                               plan?                  @relation(fields: [id_plan], references: [id_plan], onDelete: NoAction, onUpdate: NoAction)
+  usuario                                                            usuario                @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+  paciente_responsable_paciente_responsable_id_pacienteTopaciente    paciente_responsable[] @relation("paciente_responsable_id_pacienteTopaciente")
+  paciente_responsable_paciente_responsable_id_responsableTopaciente paciente_responsable[] @relation("paciente_responsable_id_responsableTopaciente")
+}
+
+model paciente_responsable {
+  id_paciente                                            Int
+  id_responsable                                         Int
+  parentesco                                             String                  @db.VarChar(50)
+  fecha_inicio                                           DateTime                @db.Date
+  fecha_fin                                              DateTime?               @db.Date
+  estado                                                 estado_activo
+  documento_responsable                                  documento_responsable[]
+  paciente_paciente_responsable_id_pacienteTopaciente    paciente                @relation("paciente_responsable_id_pacienteTopaciente", fields: [id_paciente], references: [id_paciente], onDelete: NoAction, onUpdate: NoAction)
+  paciente_paciente_responsable_id_responsableTopaciente paciente                @relation("paciente_responsable_id_responsableTopaciente", fields: [id_responsable], references: [id_paciente], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id_paciente, id_responsable])
+}
+
+model plan {
+  id_plan        Int           @id @default(autoincrement())
+  id_obra_social Int
+  nombre         String        @db.VarChar(100)
+  descripcion    String?       @db.VarChar(255)
+  estado         estado_activo
+  paciente       paciente[]
+  obra_social    obra_social   @relation(fields: [id_obra_social], references: [id_obra_social], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model profesional {
+  id_profesional           Int                        @id @default(autoincrement())
+  id_usuario               Int                        @unique
+  matricula                String                     @unique @db.VarChar(50)
+  estado                   estado_activo
+  fecha_alta               DateTime                   @db.Date
+  fecha_baja               DateTime?                  @db.Date
+  usuario                  usuario                    @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+  profesional_especialidad profesional_especialidad[]
+}
+
+model profesional_especialidad {
+  id_profesional   Int
+  id_especialidad  Int
+  fecha_asignacion DateTime      @db.Date
+  estado           estado_activo
+  especialidad     especialidad  @relation(fields: [id_especialidad], references: [id_especialidad], onDelete: NoAction, onUpdate: NoAction)
+  profesional      profesional   @relation(fields: [id_profesional], references: [id_profesional], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id_profesional, id_especialidad])
+}
+
+model refresh_token {
+  id_refresh_token Int      @id @default(autoincrement())
+  id_usuario       Int
+  token_hash       String   @unique @db.VarChar(255)
+  fecha_creacion   DateTime @db.Timestamp(6)
+  fecha_expiracion DateTime @db.Timestamp(6)
+  revocado         Boolean  @default(false)
+  usuario          usuario  @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model rol {
+  id_rol      Int           @id @default(autoincrement())
+  nombre      String        @unique @db.VarChar(50)
+  descripcion String?       @db.VarChar(255)
+  usuario_rol usuario_rol[]
+}
+
+model usuario {
+  id_usuario     Int             @id @default(autoincrement())
+  dni            String          @unique @db.VarChar(20)
+  nombre         String          @db.VarChar(100)
+  apellido       String          @db.VarChar(100)
+  telefono       String          @db.VarChar(30)
+  email          String          @unique @db.VarChar(150)
+  password_hash  String          @db.VarChar(255)
+  primer_login   Boolean         @default(true)
+  estado         estado_activo
+  fecha_alta     DateTime        @db.Timestamp(6)
+  administrativo administrativo?
+  auditoria      auditoria[]
+  paciente       paciente?
+  profesional    profesional?
+  refresh_token  refresh_token[]
+  usuario_rol    usuario_rol[]
+}
+
+model usuario_rol {
+  id_usuario       Int
+  id_rol           Int
+  estado           estado_activo
+  fecha_asignacion DateTime      @db.Timestamp(6)
+  rol              rol           @relation(fields: [id_rol], references: [id_rol], onDelete: NoAction, onUpdate: NoAction)
+  usuario          usuario       @relation(fields: [id_usuario], references: [id_usuario], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([id_usuario, id_rol])
+}
+
+enum estado_activo {
+  ACTIVO
+  INACTIVO
+}
+
+enum estado_paciente {
+  PENDIENTE_APROBACION
+  ACTIVO
+  RECHAZADO
+}
+
+enum estado_validacion {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum sexo {
+  MASCULINO
+  FEMENINO
+  OTRO
+}
