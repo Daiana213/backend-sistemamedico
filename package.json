@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/Daiana213/backend-sistemamedico#readme",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
@@ -32,7 +33,9 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
-    "redis": "^6.0.0"
+    "pg": "^8.23.0",
+    "redis": "^6.0.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
