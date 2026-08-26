@@ -21,3 +21,13 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
   await authService.logout(req.body.refreshToken);
   res.status(200).json({ mensaje: 'Sesión cerrada correctamente' });
 });
+
+export const solicitarRecuperacionPassword = asyncHandler(async (req: Request, res: Response) => {
+  const resultado = await authService.solicitarRecuperacionPassword(req.body);
+  res.status(200).json(resultado);
+});
+
+export const restablecerPassword = asyncHandler(async (req: Request, res: Response) => {
+  const resultado = await authService.restablecerPassword(req.body);
+  res.status(200).json(resultado);
+});
