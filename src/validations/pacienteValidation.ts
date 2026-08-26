@@ -1,31 +1,59 @@
 import { z } from 'zod';
+import { calcularEdad } from '../utils/edad';
+import { generarMensajesCampo, MENSAJES_TIPO } from '../utils/validationMessages';
 
-const MENSAJE_CAMPOS_OBLIGATORIOS = 'Por favor, complete todos los campos obligatorios para continuar.';
-const MENSAJE_PASS_INSEGURA = 'La contraseña es insegura, debe tener al menos 8 caracteres';
+const msg = {
+  nombre: generarMensajesCampo('nombre'),
+  apellido: generarMensajesCampo('apellido'),
+  obraSocial: generarMensajesCampo('obraSocial'),
+  plan: generarMensajesCampo('plan'),
+  fechaNacimiento: generarMensajesCampo('fechaNacimiento'),
+  sexo: generarMensajesCampo('sexo'),
+  dniResponsable: generarMensajesCampo('dniResponsable'),
+  parentesco: generarMensajesCampo('parentesco'),
+  tipoDocumento: generarMensajesCampo('tipoDocumento'),
+};
 
-export const registrarPacienteSchema = z.object({
-  nombre: z.string().trim().min(1, MENSAJE_CAMPOS_OBLIGATORIOS),
-  apellido: z.string().trim().min(1, MENSAJE_CAMPOS_OBLIGATORIOS),
-  dni: z
-    .string()
-    .regex(/^\d{7,8}$/, MENSAJE_CAMPOS_OBLIGATORIOS),
-  telefono: z
-    .string()
-    .regex(/^\d{8,15}$/, MENSAJE_CAMPOS_OBLIGATORIOS),
-  idObraSocial: z.number({ message: MENSAJE_CAMPOS_OBLIGATORIOS }).int().positive(MENSAJE_CAMPOS_OBLIGATORIOS),
-  idPlan: z.number({ message: MENSAJE_CAMPOS_OBLIGATORIOS }).int().positive(MENSAJE_CAMPOS_OBLIGATORIOS),
-  fechaNacimiento: z
-    .string()
-    .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, MENSAJE_CAMPOS_OBLIGATORIOS)
-    .transform((value) => new Date(`${value}T00:00:00.000Z`))
-    .refine((value) => !Number.isNaN(value.getTime()), MENSAJE_CAMPOS_OBLIGATORIOS),
-  sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { message: MENSAJE_CAMPOS_OBLIGATORIOS }),
-  email: z.string().trim().email(MENSAJE_CAMPOS_OBLIGATORIOS),
-  // Contraseña segura: mínimo 8 caracteres, una mayúscula, una minúscula y un número
-  password: z
-    .string()
-    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, MENSAJE_PASS_INSEGURA),
-});
+export const registrarPacienteSchema = z
+  .object({
+    nombre: z.string().trim().min(1, msg.nombre.requerido),
+    apellido: z.string().trim().min(1, msg.apellido.requerido),
+    dni: z.string().regex(/^\d{7,8}$/, MENSAJES_TIPO.dni),
+    telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono),
+    idObraSocial: z.coerce.number({ error: msg.obraSocial.seleccionar }).int().positive(msg.obraSocial.seleccionar),
+    idPlan: z.coerce.number({ error: msg.plan.seleccionar }).int().positive(msg.plan.seleccionar),
+    fechaNacimiento: z.coerce.date({ error: MENSAJES_TIPO.fecha }),
+    sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }),
+    email: z.string().trim().email(MENSAJES_TIPO.email),
+    password: z
+      .string()
+      .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, MENSAJES_TIPO.password),
+
+    // Campos del adulto responsable — solo obligatorios si el paciente es menor
+    dniResponsable: z.string().regex(/^\d{7,8}$/, MENSAJES_TIPO.dni).optional(),
+    parentesco: z.string().trim().min(1, msg.parentesco.requerido).optional(),
+    tipoDocumento: z
+      .enum(['PARTIDA_NACIMIENTO', 'LIBRETA_MATRIMONIO', 'SENTENCIA_ADOPCION'], {
+        error: msg.tipoDocumento.seleccionar,
+      })
+      .optional(),
+    telefonoAlternativo: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional(),
+    emailAlternativo: z.string().trim().email(MENSAJES_TIPO.email).optional(),
+  })
+  .superRefine((datos, ctx) => {
+    const esMenor = calcularEdad(datos.fechaNacimiento) < 18;
+
+    if (esMenor) {
+      if (!datos.dniResponsable) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: MENSAJES_TIPO.dni, path: ['dniResponsable'] });
+      }
+      if (!datos.parentesco) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.parentesco.requerido, path: ['parentesco'] });
+      }
+      if (!datos.tipoDocumento) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.tipoDocumento.seleccionar, path: ['tipoDocumento'] });
+      }
+    }
+  });
 
 export type RegistrarPacienteInput = z.infer<typeof registrarPacienteSchema>;
