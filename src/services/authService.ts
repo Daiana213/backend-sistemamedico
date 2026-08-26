@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma';
-import { comparePassword } from '../utils/password';
-import { hashToken } from '../utils/crypto';
+import { comparePassword, hashPassword } from '../utils/password';
+import { hashToken, generarTokenSeguro } from '../utils/crypto';
 import {
   signAccessToken,
   signRefreshToken,
@@ -10,10 +10,18 @@ import {
   RolActivo,
 } from '../utils/jwt';
 import { AppError } from '../utils/AppError';
-import { LoginInput, SeleccionarRolInput } from '../validations/authValidation';
+import {
+  LoginInput,
+  SeleccionarRolInput,
+  SolicitarRecuperacionInput,
+  RestablecerPasswordInput,
+} from '../validations/authValidation';
 
 const MENSAJE_CREDENCIALES_INVALIDAS = 'DNI o contraseña incorrectos';
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000; // 1 hora
+const MENSAJE_RECUPERACION_ENVIADA =
+  'Si los datos coinciden con un usuario registrado, se enviará un enlace de recuperación al correo indicado.';
 
 interface RolDisponible {
   rol: RolActivo;
@@ -212,4 +220,104 @@ export async function logout(refreshToken: string) {
     where: { tokenHash, revocado: false },
     data: { revocado: true },
   });
+}
+
+export async function solicitarRecuperacionPassword({ dni, email }: SolicitarRecuperacionInput) {
+  const usuario = await prisma.usuario.findUnique({
+    where: { dni },
+  });
+
+  // Seguridad: siempre devolvemos el mismo mensaje, aunque el usuario no exista
+  // o el email no coincida, para evitar enumeración de usuarios.
+  if (!usuario || usuario.email.toLowerCase() !== email.toLowerCase()) {
+    return {
+      mensaje: MENSAJE_RECUPERACION_ENVIADA,
+    };
+  }
+
+  if (usuario.estado !== 'ACTIVO') {
+    return {
+      mensaje: MENSAJE_RECUPERACION_ENVIADA,
+    };
+  }
+
+  // Invalidamos cualquier token de recuperación previo para este usuario
+  await prisma.passwordResetToken.updateMany({
+    where: {
+      idUsuario: usuario.idUsuario,
+      utilizado: false,
+      fechaExpiracion: { gt: new Date() },
+    },
+    data: { utilizado: true },
+  });
+
+  const tokenPlano = generarTokenSeguro();
+  const tokenHash = hashToken(tokenPlano);
+
+  await prisma.passwordResetToken.create({
+    data: {
+      idUsuario: usuario.idUsuario,
+      tokenHash,
+      fechaCreacion: new Date(),
+      fechaExpiracion: new Date(Date.now() + PASSWORD_RESET_EXPIRES_MS),
+      utilizado: false,
+    },
+  });
+
+  // TODO: En un entorno real, acá se enviaría el mail con el enlace.
+  // Por ahora, devolvemos el token en el response para que el frontend
+  // pueda simular el flujo completo.
+  const enlaceRecuperacion = `/reset-password?token=${tokenPlano}`;
+
+  return {
+    mensaje: MENSAJE_RECUPERACION_ENVIADA,
+    // En producción NO se devuelve el token al cliente; es solo para facilitar el flujo de prueba.
+    _debugToken: tokenPlano,
+    _debugEnlace: enlaceRecuperacion,
+  };
+}
+
+export async function restablecerPassword({ token, password }: RestablecerPasswordInput) {
+  const tokenHash = hashToken(token);
+
+  const registroToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { usuario: true },
+  });
+
+  if (
+    !registroToken ||
+    registroToken.utilizado ||
+    registroToken.fechaExpiracion < new Date()
+  ) {
+    throw new AppError(
+      'El enlace de restablecimiento es inválido, expiró o ya fue utilizado.',
+      400,
+    );
+  }
+
+  if (registroToken.usuario.estado !== 'ACTIVO') {
+    throw new AppError('La cuenta asociada se encuentra inactiva.', 403);
+  }
+
+  const nuevoPasswordHash = await hashPassword(password);
+
+  await prisma.$transaction([
+    prisma.usuario.update({
+      where: { idUsuario: registroToken.idUsuario },
+      data: { passwordHash: nuevoPasswordHash, primerLogin: false },
+    }),
+    prisma.passwordResetToken.update({
+      where: { idPasswordResetToken: registroToken.idPasswordResetToken },
+      data: { utilizado: true },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { idUsuario: registroToken.idUsuario, revocado: false },
+      data: { revocado: true },
+    }),
+  ]);
+
+  return {
+    mensaje: 'Contraseña actualizada correctamente. Ahora podés iniciar sesión.',
+  };
 }
