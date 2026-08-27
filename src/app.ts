@@ -33,7 +33,7 @@ app.use('/auth', authRoutes);
 app.use('/pacientes', pacienteRoutes);
 app.use('/administrativos', administrativoRoutes);
 app.use('/profesionales', profesionalRoutes);
-app.use('/api', menorRoutes);
+app.use('/', menorRoutes);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas
 app.use(notFoundHandler);
