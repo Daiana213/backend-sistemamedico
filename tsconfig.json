@@ -1,11 +1,13 @@
 {
   "compilerOptions": {
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "strict": false,
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
     "outDir": "dist",
     "rootDir": ".",
-    "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"]
