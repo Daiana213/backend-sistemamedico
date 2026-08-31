@@ -7,12 +7,20 @@
     "module": "Node16",
     "moduleResolution": "Node16",
     "outDir": "dist",
-    "rootDir": ".",
+    "rootDir": "src",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["prisma.config.ts", "src/**/*.ts", "src/**/*.d.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "prisma.config.ts",
+    "prisma/**/*"
+  ],
   "ts-node": {
     "files": true
   }
