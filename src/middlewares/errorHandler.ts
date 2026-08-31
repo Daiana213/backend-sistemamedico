@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client-runtime-utils';
 import { AppError } from '../utils/AppError';
 
 export function errorHandler(
@@ -16,7 +16,7 @@ export function errorHandler(
   }
 
   // 2. Errores conocidos de Prisma (violaciones de constraint, etc.)
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+  if (err instanceof PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
       // Unique constraint violation (ej. dni o email duplicado)
       const campo = (err.meta?.target as string[])?.join(', ') ?? 'campo';
