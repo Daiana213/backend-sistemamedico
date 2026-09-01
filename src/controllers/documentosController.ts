@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import path from 'path';
+import fs from 'fs';
 import { prisma } from '../config/prisma';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../utils/AppError';
@@ -13,7 +15,6 @@ export const obtenerDocumentoPorId = asyncHandler(async (req: Request, res: Resp
   const documento = await prisma.documentoResponsable.findUnique({
     where: { idDocumento },
     select: {
-      idDocumento: true,
       nombreArchivo: true,
       rutaArchivo: true,
     },
@@ -23,8 +24,14 @@ export const obtenerDocumentoPorId = asyncHandler(async (req: Request, res: Resp
     throw new AppError('Documento no encontrado.', 404);
   }
 
-  return res.status(200).json({
-    url: documento.rutaArchivo,
-    nombreArchivo: documento.nombreArchivo,
-  });
+  const absolutePath = path.resolve(documento.rutaArchivo);
+
+  if (!fs.existsSync(absolutePath)) {
+    throw new AppError('El archivo no existe en el servidor.', 404);
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${documento.nombreArchivo}"`);
+
+  res.sendFile(absolutePath);
 });
