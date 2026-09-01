@@ -24,14 +24,35 @@ export const obtenerDocumentoPorId = asyncHandler(async (req: Request, res: Resp
     throw new AppError('Documento no encontrado.', 404);
   }
 
-  const absolutePath = path.resolve(documento.rutaArchivo);
+  const rutaArchivo = documento.rutaArchivo?.trim();
 
-  if (!fs.existsSync(absolutePath)) {
+  if (rutaArchivo && /^https?:\/\//i.test(rutaArchivo)) {
+    return res.status(200).json({
+      url: rutaArchivo,
+      nombreArchivo: documento.nombreArchivo,
+    });
+  }
+
+  const absolutePath = path.resolve(rutaArchivo || '');
+
+  if (!rutaArchivo || !fs.existsSync(absolutePath)) {
     throw new AppError('El archivo no existe en el servidor.', 404);
   }
 
-  res.setHeader('Content-Type', 'application/pdf');
+  const extension = path.extname(absolutePath).toLowerCase();
+  const contentType =
+    extension === '.pdf'
+      ? 'application/pdf'
+      : extension === '.png'
+        ? 'image/png'
+        : extension === '.jpg' || extension === '.jpeg'
+          ? 'image/jpeg'
+          : extension === '.webp'
+            ? 'image/webp'
+            : 'application/octet-stream';
+
+  res.setHeader('Content-Type', contentType);
   res.setHeader('Content-Disposition', `inline; filename="${documento.nombreArchivo}"`);
 
-  res.sendFile(absolutePath);
+  return res.sendFile(absolutePath);
 });
