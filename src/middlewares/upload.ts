@@ -24,7 +24,7 @@ const storage = new CloudinaryStorage({
 
     return {
       folder: 'documentos-responsables',
-      resource_type: esPdf ? 'raw' : 'auto',
+      resource_type: 'auto',
       format: esPdf ? 'pdf' : extension.replace('.', ''),
       public_id: `doc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       allowed_formats: esPdf ? ['pdf'] : ['jpg', 'jpeg', 'png', 'webp'],
