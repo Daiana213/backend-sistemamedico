@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
-import { requierePermisoGestionUsuarios } from '../middlewares/requierePermisoGestionUsuarios';
 import { uploadDocumentoResponsable  } from '../middlewares/upload';
 import {
   listarMenores,
@@ -15,21 +14,18 @@ const router = Router();
 router.get(
   '/administrativos/menores-pendientes',
   authenticate,
-  requierePermisoGestionUsuarios,
   listarMenores
 );
 
 router.patch(
   '/administrativos/menores/:id/aprobar',
   authenticate,
-  requierePermisoGestionUsuarios,
   aprobarMenor
 );
 
 router.patch(
   '/administrativos/menores/:id/rechazar',
   authenticate,
-  requierePermisoGestionUsuarios,
   rechazarMenor
 );
 

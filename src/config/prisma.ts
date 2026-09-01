@@ -8,7 +8,8 @@ declare global {
 }
 
 const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL 
+  connectionString: process.env.DATABASE_URL,
+  //ssl: { rejectUnauthorized: false } Se usa para el seed
 });
 const adapter = new PrismaPg(pool);
 
