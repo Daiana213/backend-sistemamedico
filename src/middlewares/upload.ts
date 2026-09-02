@@ -21,16 +21,23 @@ const storage = new CloudinaryStorage({
     }
 
     const esPdf = extension === '.pdf';
+    const uniqueId = `doc-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    return {
-      folder: 'documentos-responsables',
-      resource_type: 'auto',
-      format: esPdf ? 'pdf' : extension.replace('.', ''),
-      public_id: `doc-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      allowed_formats: esPdf ? ['pdf'] : ['jpg', 'jpeg', 'png', 'webp'],
-      use_filename: false,
-      unique_filename: true,
-    };
+    if (esPdf) {
+      return {
+        folder: 'documentos-responsables',
+        resource_type: 'raw',
+        public_id: `${uniqueId}.pdf`
+      } as any;
+    } else {
+      return {
+        folder: 'documentos-responsables',
+        resource_type: 'image',
+        format: extension.replace('.', ''),
+        public_id: uniqueId,
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp']
+      } as any;
+    }
   },
 });
 
