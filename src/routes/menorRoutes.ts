@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import { requiereAdminActivo } from '../middlewares/requiereAdminActivo';
+import { uploadDocumentoResponsable  } from '../middlewares/upload';
 import {
   listarMenores,
   aprobarMenor,
@@ -36,6 +37,7 @@ router.patch(
 router.patch(
   '/pacientes/menores/:id/reenviar-documentacion',
   authenticate,
+  uploadDocumentoResponsable.single('documento'),
   reenviarDoc
 );
 
