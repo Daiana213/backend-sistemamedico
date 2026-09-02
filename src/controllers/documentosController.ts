@@ -27,8 +27,14 @@ export const obtenerDocumentoPorId = asyncHandler(async (req: Request, res: Resp
   const rutaArchivo = documento.rutaArchivo?.trim();
 
   if (rutaArchivo && /^https?:\/\//i.test(rutaArchivo)) {
+    const extension = documento.nombreArchivo.split('.').pop()?.toLowerCase();
+    const esImagen = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(extension || '');
+    const url = esImagen
+      ? `${rutaArchivo.replace(/\/$/, '')}/-/preview/1000x1000/`
+      : rutaArchivo;
+
     return res.status(200).json({
-      url: rutaArchivo,
+      url,
       nombreArchivo: documento.nombreArchivo,
     });
   }

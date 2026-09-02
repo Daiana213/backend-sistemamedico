@@ -37,6 +37,8 @@ export const registrarPacienteSchema = z
         error: msg.tipoDocumento.seleccionar,
       })
       .optional(),
+    documentoUuid: z.string().trim().min(1, 'Debe adjuntar el documento del adulto responsable.').optional(),
+    documentoNombre: z.string().trim().min(1).optional(),
     telefonoAlternativo: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional(),
     emailAlternativo: z.string().trim().email(MENSAJES_TIPO.email).optional(),
   })
@@ -52,6 +54,13 @@ export const registrarPacienteSchema = z
       }
       if (!datos.tipoDocumento) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.tipoDocumento.seleccionar, path: ['tipoDocumento'] });
+      }
+      if (!datos.documentoUuid) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Debe adjuntar el documento del adulto responsable.',
+          path: ['documentoUuid'],
+        });
       }
     }
   });
