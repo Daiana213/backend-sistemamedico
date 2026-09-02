@@ -48,12 +48,11 @@ export const reenviarDoc = asyncHandler(async (req: Request, res: Response) => {
   const idPaciente = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
   if (isNaN(idPaciente)) throw new AppError('ID de paciente inválido.', 400);
 
-  const { tipoDocumento, documentoUuid, documentoNombre } = req.body;
+  if (!req.file) throw new AppError('Por favor, adjuntá el documento requerido.', 400);
+
+  const { tipoDocumento } = req.body;
   if (!tipoDocumento || typeof tipoDocumento !== 'string' || tipoDocumento.trim() === '') {
     throw new AppError('El tipo de documento es obligatorio.', 400);
-  }
-  if (!documentoUuid || typeof documentoUuid !== 'string' || documentoUuid.trim() === '') {
-    throw new AppError('Por favor, adjuntá el documento requerido.', 400);
   }
 
   const idUsuarioAutenticado = req.usuario!.idUsuario;
@@ -62,8 +61,8 @@ export const reenviarDoc = asyncHandler(async (req: Request, res: Response) => {
     idPaciente,
     idUsuarioAutenticado,
     {
-      nombreArchivo: documentoNombre?.trim() || `documento-${documentoUuid.trim()}`,
-      rutaArchivo: `https://ucarecdn.com/${documentoUuid.trim()}/`,
+      nombreArchivo: req.file.filename,
+      rutaArchivo: `/api/documentos/${req.file.filename}`,
     },
     tipoDocumento.trim()
   );
