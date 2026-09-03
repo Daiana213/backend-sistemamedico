@@ -26,8 +26,9 @@ const storage = new CloudinaryStorage({
     if (esPdf) {
       return {
         folder: 'documentos-responsables',
-        resource_type: 'raw',
-        public_id: `${uniqueId}.pdf`
+        resource_type: 'auto',
+        public_id: uniqueId,
+        format: 'pdf'
       } as any;
     } else {
       return {
