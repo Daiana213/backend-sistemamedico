@@ -153,6 +153,7 @@ async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: num
         passwordHash,
         estado: 'ACTIVO',
         fechaAlta: new Date(),
+        primerLogin: false,
       },
     });
 
@@ -210,6 +211,7 @@ async function registrarPacienteMenor(
         passwordHash,
         estado: 'ACTIVO',
         fechaAlta: new Date(),
+        primerLogin: false,
       },
     });
 

@@ -1,4 +1,5 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
+import { generarTokenSeguro } from './crypto';
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET as string;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET as string;
@@ -14,10 +15,12 @@ export interface AccessTokenPayload {
   rolActivo: RolActivo;
   idRolEspecifico: number; // idPaciente | idProfesional | idAdministrativo
   permisos?: string[];     // solo relevante si rolActivo === 'ADMINISTRATIVO'
+  primerLogin?: boolean;
 }
 
 export interface RefreshTokenPayload {
   idUsuario: number;
+  jti?: string;
 }
 
 export interface PreSessionTokenPayload {
@@ -41,7 +44,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 // ---------- Refresh token ----------
 
 export function signRefreshToken(payload: RefreshTokenPayload): string {
-  return sign(payload, REFRESH_SECRET, REFRESH_EXPIRES_IN);
+  return sign({ ...payload, jti: generarTokenSeguro(16) }, REFRESH_SECRET, REFRESH_EXPIRES_IN);
 }
 
 export function verifyRefreshToken(token: string): RefreshTokenPayload {

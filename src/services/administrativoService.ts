@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma';
-import { hashPassword } from '../utils/password';
+import { hashPassword, generarPasswordGenerica } from '../utils/password';
 import { AppError } from '../utils/AppError';
 import { RegistrarAdministrativoInput } from '../validations/administrativoValidation';
 
@@ -40,7 +40,9 @@ async function crearUsuarioAdministrativo(
     throw new AppError('No se encontró el rol ADMINISTRATIVO configurado en el sistema.', 500);
   }
 
-  const passwordHash = await hashPassword(datos.password);
+  const passwordTemporal = datos.password ? null : generarPasswordGenerica();
+  const passwordFinal = datos.password ?? passwordTemporal!;
+  const passwordHash = await hashPassword(passwordFinal);
 
   const { usuario, administrativo } = await prisma.$transaction(async (tx) => {
     const nuevoUsuario = await tx.usuario.create({
@@ -102,6 +104,7 @@ async function crearUsuarioAdministrativo(
     idUsuario: usuario.idUsuario,
     idAdministrativo: administrativo.idAdministrativo,
     mensaje: 'Usuario administrativo registrado correctamente.',
+    ...(passwordTemporal && { passwordGenerica: passwordTemporal }),
   };
 }
 
