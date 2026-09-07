@@ -9,6 +9,8 @@ import administrativoRoutes from './routes/administrativoRoutes';
 import profesionalRoutes from './routes/profesionalRoutes';
 import especialidadRoutes from './routes/especialidadRoutes';
 import menorRoutes from './routes/menorRoutes';
+import obraSocialRoutes from './routes/obraSocialRoutes';
+import documentosRoutes from './routes/documentosRoutes';
 
 const app: Application = express();
 
@@ -36,6 +38,7 @@ app.use('/administrativos', administrativoRoutes);
 app.use('/profesionales', profesionalRoutes);
 app.use('/especialidades', especialidadRoutes);
 app.use('/', menorRoutes);
+app.use('/', obraSocialRoutes);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas
 app.use(notFoundHandler);

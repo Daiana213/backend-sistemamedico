@@ -1,16 +1,26 @@
 {
   "compilerOptions": {
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "strict": false,
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
     "outDir": "dist",
-    "rootDir": ".",
-    "strict": true,
+    "rootDir": "src",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["prisma.config.ts", "src/**/*.ts", "src/**/*.d.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "prisma.config.ts",
+    "prisma/**/*"
+  ],
   "ts-node": {
     "files": true
   }

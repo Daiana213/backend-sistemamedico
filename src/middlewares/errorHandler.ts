@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client-runtime-utils';
 import { AppError } from '../utils/AppError';
 
 export function errorHandler(
@@ -8,15 +8,15 @@ export function errorHandler(
   res: Response,
   next: NextFunction,
 ) {
-  // 1. Errores de negocio que nosotros mismos lanzamos
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       error: err.message,
+      ...(err.details && { details: err.details }),
     });
   }
 
   // 2. Errores conocidos de Prisma (violaciones de constraint, etc.)
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+  if (err instanceof PrismaClientKnownRequestError) {
     if (err.code === 'P2002') {
       // Unique constraint violation (ej. dni o email duplicado)
       const campo = (err.meta?.target as string[])?.join(', ') ?? 'campo';

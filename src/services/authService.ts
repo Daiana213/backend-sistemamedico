@@ -15,9 +15,11 @@ import {
   SeleccionarRolInput,
   SolicitarRecuperacionInput,
   RestablecerPasswordInput,
+  CambiarPasswordInput,
 } from '../validations/authValidation';
 
-const MENSAJE_CREDENCIALES_INVALIDAS = 'DNI o contraseña incorrectos';
+const MENSAJE_CREDENCIALES_INVALIDAS = 'Credenciales inválidas. Por favor, intente nuevamente.';
+const MENSAJE_CUENTA_INACTIVA = 'Tu cuenta se encuentra inactiva. Contacta con la administración.';
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000; // 1 hora
 const MENSAJE_RECUPERACION_ENVIADA =
@@ -72,12 +74,13 @@ function resolverRolesDisponibles(
 }
 
 // Emite access + refresh token para un rol ya resuelto, y persiste el refresh
-async function emitirTokens(idUsuario: number, rolInfo: RolDisponible) {
+async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLogin: boolean) {
   const accessToken = signAccessToken({
     idUsuario,
     rolActivo: rolInfo.rol,
     idRolEspecifico: rolInfo.idRolEspecifico,
     permisos: rolInfo.permisos,
+    primerLogin,
   });
 
   const refreshToken = signRefreshToken({ idUsuario });
@@ -92,7 +95,7 @@ async function emitirTokens(idUsuario: number, rolInfo: RolDisponible) {
     },
   });
 
-  return { accessToken, refreshToken, rolActivo: rolInfo.rol };
+  return { accessToken, refreshToken, rolActivo: rolInfo.rol, primerLogin };
 }
 
 export async function login({ dni, password }: LoginInput) {
@@ -116,7 +119,7 @@ export async function login({ dni, password }: LoginInput) {
   }
 
   if (usuario.estado !== 'ACTIVO') {
-    throw new AppError('Tu cuenta está inactiva. Contactate con administración.', 403);
+    throw new AppError(MENSAJE_CUENTA_INACTIVA, 403);
   }
 
   const rolesDisponibles = resolverRolesDisponibles(usuario);
@@ -126,7 +129,7 @@ export async function login({ dni, password }: LoginInput) {
   }
 
   if (rolesDisponibles.length === 1) {
-    return emitirTokens(usuario.idUsuario, rolesDisponibles[0]);
+    return emitirTokens(usuario.idUsuario, rolesDisponibles[0], usuario.primerLogin);
   }
 
   // Más de un rol usable: pre-sesión, el cliente elige después
@@ -135,6 +138,7 @@ export async function login({ dni, password }: LoginInput) {
     requiereSeleccionRol: true as const,
     preSessionToken,
     rolesDisponibles: rolesDisponibles.map((r) => r.rol),
+    primerLogin: usuario.primerLogin,
   };
 }
 
@@ -160,7 +164,7 @@ export async function seleccionarRol({ preSessionToken, rol }: SeleccionarRolInp
     throw new AppError('No tenés acceso a ese rol', 403);
   }
 
-  return emitirTokens(usuario.idUsuario, rolElegido);
+  return emitirTokens(usuario.idUsuario, rolElegido, usuario.primerLogin);
 }
 
 export async function refresh(refreshToken: string) {
@@ -199,8 +203,8 @@ export async function refresh(refreshToken: string) {
       rolActivo: rolInfo.rol,
       idRolEspecifico: rolInfo.idRolEspecifico,
       permisos: rolInfo.permisos,
+      primerLogin: usuario.primerLogin,
     });
-    return { accessToken, rolActivo: rolInfo.rol };
   }
 
   const preSessionToken = signPreSessionToken({ idUsuario: usuario.idUsuario });
@@ -319,5 +323,60 @@ export async function restablecerPassword({ token, password }: RestablecerPasswo
 
   return {
     mensaje: 'Contraseña actualizada correctamente. Ahora podés iniciar sesión.',
+  };
+}
+
+export async function cambiarPassword(
+  idUsuario: number,
+  { passwordActual, nuevoPassword }: CambiarPasswordInput
+) {
+  const usuario = await prisma.usuario.findUnique({
+    where: { idUsuario },
+  });
+
+  if (!usuario) {
+    throw new AppError('Usuario no encontrado.', 404);
+  }
+
+  if (usuario.estado !== 'ACTIVO') {
+    throw new AppError('Tu cuenta está inactiva. Contactate con administración.', 403);
+  }
+
+  const passwordValida = await comparePassword(passwordActual, usuario.passwordHash);
+  if (!passwordValida) {
+    throw new AppError('La contraseña actual es incorrecta.', 400);
+  }
+
+  const nuevoPasswordHash = await hashPassword(nuevoPassword);
+
+  await prisma.$transaction([
+    prisma.usuario.update({
+      where: { idUsuario },
+      data: {
+        passwordHash: nuevoPasswordHash,
+        primerLogin: false,
+      },
+    }),
+    prisma.refreshToken.updateMany({
+      where: { idUsuario, revocado: false },
+      data: { revocado: true },
+    }),
+  ]);
+
+  const usuarioCompleto = await buscarUsuarioCompleto(idUsuario);
+  const rolesDisponibles = usuarioCompleto ? resolverRolesDisponibles(usuarioCompleto) : [];
+  let tokens = null;
+  if (rolesDisponibles.length === 1) {
+    tokens = await emitirTokens(idUsuario, rolesDisponibles[0], false);
+  }
+
+  return {
+    mensaje: 'Contraseña actualizada correctamente.',
+    primerLogin: false,
+    ...(tokens && {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      rolActivo: tokens.rolActivo,
+    }),
   };
 }

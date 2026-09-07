@@ -16,11 +16,11 @@ const msg = {
 
 export const registrarPacienteSchema = z
   .object({
-    nombre: z.string().trim().min(1, msg.nombre.requerido),
-    apellido: z.string().trim().min(1, msg.apellido.requerido),
+    nombre: z.string().trim().min(1, 'El nombre es obligatorio.'),
+    apellido: z.string().trim().min(1, 'El apellido es obligatorio.'),
     dni: z.string().regex(/^\d{7,8}$/, MENSAJES_TIPO.dni),
     telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono),
-    idObraSocial: z.coerce.number({ error: msg.obraSocial.seleccionar }).int().positive(msg.obraSocial.seleccionar),
+    idObraSocial: z.coerce.number({ error: 'Debe seleccionar una obra social válida.' }).int().positive('Debe seleccionar una obra social válida.'),
     idPlan: z.coerce.number({ error: msg.plan.seleccionar }).int().positive(msg.plan.seleccionar),
     fechaNacimiento: z.coerce.date({ error: MENSAJES_TIPO.fecha }),
     sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }),
