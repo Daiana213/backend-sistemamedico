@@ -9,6 +9,7 @@ const msg = {
   email: generarMensajesCampo('email'),
   matricula: generarMensajesCampo('matricula'),
   especialidades: generarMensajesCampo('especialidades'),
+  password: generarMensajesCampo('password'),
 };
 
 export const registrarProfesionalSchema = z.object({
@@ -33,6 +34,9 @@ export const registrarProfesionalSchema = z.object({
   matricula: z
     .string({ message: msg.matricula.requerido })
     .min(1, msg.matricula.requerido),
+  password: z
+    .string({ message: msg.password.requerido })
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$/, MENSAJES_TIPO.password),
   especialidades: z
     .array(z.number({ message: msg.especialidades.numero }))
     .min(1, 'Debe asignarse al menos una especialidad.'),

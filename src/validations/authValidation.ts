@@ -57,3 +57,23 @@ export type RefreshInput = z.infer<typeof refreshSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type SolicitarRecuperacionInput = z.infer<typeof solicitarRecuperacionSchema>;
 export type RestablecerPasswordInput = z.infer<typeof restablecerPasswordSchema>;
+
+export const cambiarPasswordSchema = z
+  .object({
+    passwordActual: z.string().min(1, 'La contraseña actual es obligatoria.'),
+    nuevoPassword: z
+      .string()
+      .min(8, msg.password.minimo(8))
+      .regex(PASSWORD_REGEX, MENSAJES_TIPO.password),
+    confirmarPassword: z.string().min(1, msg.confirmarPassword.requerido),
+  })
+  .refine((data) => data.nuevoPassword === data.confirmarPassword, {
+    message: 'Las contraseñas no coinciden.',
+    path: ['confirmarPassword'],
+  })
+  .refine((data) => data.passwordActual !== data.nuevoPassword, {
+    message: 'La nueva contraseña no puede ser igual a la actual.',
+    path: ['nuevoPassword'],
+  });
+
+export type CambiarPasswordInput = z.infer<typeof cambiarPasswordSchema>;

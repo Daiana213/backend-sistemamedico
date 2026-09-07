@@ -8,10 +8,10 @@ export function errorHandler(
   res: Response,
   next: NextFunction,
 ) {
-  // 1. Errores de negocio que nosotros mismos lanzamos
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       error: err.message,
+      ...(err.details && { details: err.details }),
     });
   }
 

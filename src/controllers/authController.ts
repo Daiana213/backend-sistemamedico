@@ -31,3 +31,9 @@ export const restablecerPassword = asyncHandler(async (req: Request, res: Respon
   const resultado = await authService.restablecerPassword(req.body);
   res.status(200).json(resultado);
 });
+
+export const cambiarPassword = asyncHandler(async (req: Request, res: Response) => {
+  const idUsuario = req.usuario!.idUsuario;
+  const resultado = await authService.cambiarPassword(idUsuario, req.body);
+  res.status(200).json(resultado);
+});

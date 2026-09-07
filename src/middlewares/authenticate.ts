@@ -7,7 +7,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return next(new AppError('No se proporcionó un token de acceso', 401));
+    return next(new AppError('Acceso denegado. No se proporcionó un token de acceso válido.', 401));
   }
 
   const token = authHeader.split(' ')[1];
@@ -17,8 +17,8 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
     next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
-      return next(new AppError('El token de acceso expiró', 401));
+      return next(new AppError('Tu sesión ha expirado. Por favor, iniciá sesión nuevamente.', 401));
     }
-    return next(new AppError('Token de acceso inválido', 401));
+    return next(new AppError('Token de acceso inválido. Por favor, iniciá sesión nuevamente.', 401));
   }
 }

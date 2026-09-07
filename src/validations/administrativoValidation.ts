@@ -9,13 +9,13 @@ const msg = {
 };
 
 export const registrarAdministrativoSchema = z.object({
-  nombre: z.string().trim().min(1, msg.nombre.requerido),
-  apellido: z.string().trim().min(1, msg.apellido.requerido),
+  nombre: z.string().trim().min(1, 'El nombre es obligatorio.'),
+  apellido: z.string().trim().min(1, 'El apellido es obligatorio.'),
   dni: z.string().regex(/^\d{7,8}$/, MENSAJES_TIPO.dni),
   puesto: z.string().trim().min(1, msg.puesto.requerido),
   telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono),
   email: z.string().trim().email(MENSAJES_TIPO.email),
-  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, MENSAJES_TIPO.password),
+  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, MENSAJES_TIPO.password).optional(),
   permisoGestionUsuarios: z.boolean({
     error: () => ({ message: msg.permisoGestionUsuarios.boolean || msg.permisoGestionUsuarios.requerido }),
   }),
