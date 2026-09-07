@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes';
 import pacienteRoutes from './routes/pacienteRoutes';
 import administrativoRoutes from './routes/administrativoRoutes';
 import profesionalRoutes from './routes/profesionalRoutes';
+import especialidadRoutes from './routes/especialidadRoutes';
 import menorRoutes from './routes/menorRoutes';
 import obraSocialRoutes from './routes/obraSocialRoutes';
 import documentosRoutes from './routes/documentosRoutes';
@@ -35,7 +36,7 @@ app.use('/auth', authRoutes);
 app.use('/pacientes', pacienteRoutes);
 app.use('/administrativos', administrativoRoutes);
 app.use('/profesionales', profesionalRoutes);
-app.use('/documentos', documentosRoutes);
+app.use('/especialidades', especialidadRoutes);
 app.use('/', menorRoutes);
 app.use('/', obraSocialRoutes);
 
