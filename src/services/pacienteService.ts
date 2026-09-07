@@ -5,9 +5,9 @@ import { AppError } from '../utils/AppError';
 import { RegistrarPacienteInput } from '../validations/pacienteValidation';
 
 const MENSAJE_DNI_DUPLICADO =
-  'El DNI ingresado ya se encuentra registrado en el sistema. Volvé al inicio de sesión.';
+  'El DNI ingresado ya se encuentra registrado en el sistema.';
 const MENSAJE_ADULTO_NO_REGISTRADO =
-  'El DNI del adulto responsable no se encuentra registrado en el sistema. Por favor, registrelo primero.';
+  'El DNI del adulto responsable no se encuentra registrado en el sistema.';
 
 interface ArchivoDocumento {
   nombreArchivo: string;

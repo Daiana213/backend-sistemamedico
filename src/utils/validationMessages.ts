@@ -41,10 +41,10 @@ export const crearMensajes = (campos: string[]) => {
  * Mensajes predefinidos por tipo de campo común
  */
 export const MENSAJES_TIPO = {
-  dni: 'El DNI debe contener entre 7 y 8 dígitos.',
+  dni: 'El DNI debe contener entre 7 y 8 números.',
   telefono: 'El teléfono debe contener entre 8 y 15 dígitos.',
-  password: 'La contraseña debe tener al menos 8 caracteres, incluyendo una mayúscula, una minúscula y un número.',
-  email: 'Debe ingresar un correo electrónico válido.',
+  password: 'La contraseña no cumple con los requisitos de seguridad.',
+  email: 'Debe ingresar un correo electrónico con formato válido.',
   fecha: 'La fecha proporcionada no es válida.',
   sexo: 'Debe seleccionar un sexo válido (Masculino, Femenino u Otro).',
   booleano: 'Este campo es requerido.',
