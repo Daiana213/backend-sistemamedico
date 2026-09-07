@@ -7,8 +7,12 @@ export function validate(schema: ZodSchema) {
     const result = schema.safeParse(req.body);
 
     if (!result.success) {
-      const mensaje = result.error.issues.map((i) => i.message).join('; ');
-      return next(new AppError(mensaje, 400));
+      const details = result.error.issues.reduce((acc: Record<string, string>, issue) => {
+        const key = issue.path.join('.') || 'general';
+        acc[key] = issue.message;
+        return acc;
+      }, {});
+      return next(new AppError('Por favor, complete todos los campos obligatorios para continuar', 400, details));
     }
 
     req.body = result.data;

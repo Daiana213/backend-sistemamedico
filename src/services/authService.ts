@@ -17,7 +17,8 @@ import {
   RestablecerPasswordInput,
 } from '../validations/authValidation';
 
-const MENSAJE_CREDENCIALES_INVALIDAS = 'DNI o contraseña incorrectos';
+const MENSAJE_CREDENCIALES_INVALIDAS = 'Credenciales inválidas. Por favor, intente nuevamente.';
+const MENSAJE_CUENTA_INACTIVA = 'Tu cuenta se encuentra inactiva. Contacta con la administración.';
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000; // 1 hora
 const MENSAJE_RECUPERACION_ENVIADA =
@@ -116,7 +117,7 @@ export async function login({ dni, password }: LoginInput) {
   }
 
   if (usuario.estado !== 'ACTIVO') {
-    throw new AppError('Tu cuenta está inactiva. Contactate con administración.', 403);
+    throw new AppError(MENSAJE_CUENTA_INACTIVA, 403);
   }
 
   const rolesDisponibles = resolverRolesDisponibles(usuario);
