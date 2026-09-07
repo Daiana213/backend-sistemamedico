@@ -7,6 +7,7 @@ import authRoutes from './routes/authRoutes';
 import pacienteRoutes from './routes/pacienteRoutes';
 import administrativoRoutes from './routes/administrativoRoutes';
 import profesionalRoutes from './routes/profesionalRoutes';
+import especialidadRoutes from './routes/especialidadRoutes';
 import menorRoutes from './routes/menorRoutes';
 
 const app: Application = express();
@@ -33,6 +34,7 @@ app.use('/auth', authRoutes);
 app.use('/pacientes', pacienteRoutes);
 app.use('/administrativos', administrativoRoutes);
 app.use('/profesionales', profesionalRoutes);
+app.use('/especialidades', especialidadRoutes);
 app.use('/', menorRoutes);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas

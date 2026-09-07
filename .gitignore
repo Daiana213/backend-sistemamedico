@@ -6,3 +6,6 @@
 !.env.example
 hashgen.js
 uploads/
+
+# Prisma seed
+prisma/seed.ts
