@@ -51,8 +51,7 @@ async function crearUsuarioProfesional(
   idAdministrativo: number,
   ip?: string
 ) {
-  const passwordGenerica = generarPasswordGenerica();
-  const passwordHash = await hashPassword(passwordGenerica);
+  const passwordHash = await hashPassword(datos.password);
 
   await prisma.$transaction(async (tx) => {
     const nuevoUsuario = await tx.usuario.create({
@@ -111,7 +110,6 @@ async function crearUsuarioProfesional(
 
   return {
     mensaje: 'Profesional registrado correctamente en el sistema.',
-    passwordGenerica,
   };
 }
 
@@ -124,8 +122,7 @@ async function agregarRolProfesional(
   idAdministrativo: number,
   ip?: string
 ) {
-  const passwordGenerica = generarPasswordGenerica();
-  const passwordHash = await hashPassword(passwordGenerica);
+  const passwordHash = await hashPassword(datos.password);
 
   await prisma.$transaction(async (tx) => {
     // Actualizamos el passwordHash para que use la nueva contraseña genérica
@@ -178,6 +175,5 @@ async function agregarRolProfesional(
 
   return {
     mensaje: 'Rol profesional agregado correctamente al usuario existente.',
-    passwordGenerica,
   };
 }
