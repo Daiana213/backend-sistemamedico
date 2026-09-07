@@ -39,6 +39,7 @@ app.use('/profesionales', profesionalRoutes);
 app.use('/especialidades', especialidadRoutes);
 app.use('/', menorRoutes);
 app.use('/', obraSocialRoutes);
+app.use('/documentos', documentosRoutes);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas
 app.use(notFoundHandler);
