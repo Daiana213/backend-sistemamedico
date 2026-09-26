@@ -4,8 +4,12 @@
 .env
 .env.*
 !.env.example
-hashgen.js
+scripts/hashgen.js
 uploads/
 
 # Prisma seed
 prisma/seed.ts
+
+#AGENTS
+AGENTs.md
+documentacion.md

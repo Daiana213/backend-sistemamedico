@@ -1,0 +1,919 @@
+openapi: 3.0.3
+info:
+  title: API Sistema Médico
+  description: >
+    Documentación OpenAPI 3.0 de la API REST para el Sistema Médico.
+    Incluye gestión de autenticación con JWT y Refresh Tokens, control de roles (PACIENTE, PROFESIONAL, ADMINISTRATIVO),
+    registro y validación de menores, catálogo de obras sociales y planes, especialidades médicas y carga de documentación.
+  version: 1.0.0
+  contact:
+    name: Soporte Sanatorio Antonia
+    email: soporte@sanatorioantonia.com
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Servidor de Desarrollo Local (v1 - Recomendado)
+  - url: http://localhost:3000
+    description: Servidor de Desarrollo Local (Raíz)
+  - url: https://backend-sistemamedico-m346.onrender.com/api/v1
+    description: Servidor de Producción (Render v1)
+  - url: https://backend-sistemamedico-m346.onrender.com
+    description: Servidor de Producción (Render Raíz)
+
+tags:
+  - name: Sistema
+    description: Healthcheck y estado de la API
+  - name: Autenticación
+    description: Login, selección de rol, refresh token, logout y recuperación de contraseñas
+  - name: Pacientes
+    description: Registro de pacientes y reenvío de documentación respaldatoria
+  - name: Administrativos
+    description: Registro de administrativos y validación / aprobación de pacientes menores
+  - name: Profesionales
+    description: Registro de profesionales de la salud con matrícula y especialidades
+  - name: Especialidades
+    description: Catálogo de especialidades médicas activas
+  - name: Obras Sociales
+    description: Consulta de obras sociales y planes médicos
+  - name: Documentos
+    description: Descarga y visualización de documentación de pacientes
+
+paths:
+  /health:
+    get:
+      tags:
+        - Sistema
+      summary: Health check del servicio
+      description: Permite comprobar si el servidor está en línea y respondiendo peticiones.
+      responses:
+        '200':
+          description: Servicio saludable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /auth/login:
+    post:
+      tags:
+        - Autenticación
+      summary: Iniciar sesión
+      description: Autentica un usuario con su DNI y contraseña. Devuelve un access token o un preSessionToken si tiene múltiples roles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Inicio de sesión exitoso o indicación de selección de rol
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LoginExitosoResponse'
+                  - $ref: '#/components/schemas/SeleccionRolRequeridaResponse'
+        '400':
+          description: Datos inválidos en la petición
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Cuenta inactiva o sin roles asignados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/seleccionar-rol:
+    post:
+      tags:
+        - Autenticación
+      summary: Seleccionar rol post-login
+      description: Utilizado cuando el usuario posee múltiples roles en el sistema para emitir los tokens de acceso del rol seleccionado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeleccionarRolRequest'
+      responses:
+        '200':
+          description: Rol seleccionado correctamente y tokens emitidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginExitosoResponse'
+        '400':
+          description: Parámetros inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Token de pre-sesión inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: El usuario no tiene asignado el rol solicitado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Autenticación
+      summary: Renovar tokens de sesión
+      description: Emite un nuevo access token utilizando un refresh token válido almacenado en el cliente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token renovado con éxito
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Refresh token revocado o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      tags:
+        - Autenticación
+      summary: Cerrar sesión
+      description: Revoca el refresh token para invalidar futuras renovaciones de sesión.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '200':
+          description: Sesión cerrada correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Sesión cerrada correctamente
+
+  /auth/solicitar-recuperacion:
+    post:
+      tags:
+        - Autenticación
+      summary: Solicitar restablecimiento de contraseña
+      description: Genera un token seguro y envía un correo al usuario para restablecer su clave.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolicitarRecuperacionRequest'
+      responses:
+        '200':
+          description: Correo de restablecimiento despachado si los datos coinciden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Si los datos coinciden con un usuario registrado, se enviará un enlace de recuperación al correo indicado.
+
+  /auth/restablecer-password:
+    post:
+      tags:
+        - Autenticación
+      summary: Restablecer contraseña con token
+      description: Actualiza la contraseña del usuario utilizando el token recibido por correo electrónico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestablecerPasswordRequest'
+      responses:
+        '200':
+          description: Contraseña restablecida exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Contraseña actualizada correctamente. Ahora podés iniciar sesión.
+        '400':
+          description: Token inválido, expirado o contraseñas no coincidentes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/cambiar-password:
+    post:
+      tags:
+        - Autenticación
+      summary: Cambiar contraseña para usuario autenticado
+      description: Permite al usuario activo modificar su contraseña proporcionando su contraseña actual y una nueva.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CambiarPasswordRequest'
+      responses:
+        '200':
+          description: Contraseña modificada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Contraseña actualizada correctamente.
+                  primerLogin:
+                    type: boolean
+                    example: false
+        '400':
+          description: Contraseña actual incorrecta o formato de nueva contraseña inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /pacientes/registro:
+    post:
+      tags:
+        - Pacientes
+      summary: Registrar paciente
+      description: >
+        Registra a un paciente mayor de edad o a un menor a cargo de un responsable.
+        Para menores se requiere adjuntar documento respaldatorio (partida de nacimiento, etc.) mediante multipart/form-data.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegistroPacienteForm'
+      responses:
+        '201':
+          description: Paciente registrado con éxito
+        '400':
+          description: Errores en la validación de campos o archivo adjunto inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /pacientes/menores/{id}/reenviar-documentacion:
+    patch:
+      tags:
+        - Pacientes
+      summary: Reenviar documentación de un menor
+      description: Permite a un responsable autenticado volver a subir el documento de un menor observado o rechazado.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID del paciente menor
+          schema:
+            type: integer
+            example: 5
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - documento
+                - tipoDocumento
+              properties:
+                tipoDocumento:
+                  type: string
+                  example: Partida de Nacimiento
+                documento:
+                  type: string
+                  format: binary
+                  description: Archivo PDF o imagen
+      responses:
+        '200':
+          description: Documento cargado para nueva validación
+        '400':
+          description: Falta adjuntar archivo o tipo de documento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: No autorizado para el menor indicado
+
+  /administrativos/registro:
+    post:
+      tags:
+        - Administrativos
+      summary: Registrar nuevo personal administrativo
+      description: Requiere autenticación de un usuario con permiso de gestión de usuarios activo.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistroAdministrativoRequest'
+      responses:
+        '201':
+          description: Administrativo registrado exitosamente
+        '400':
+          description: Validación de datos fallida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+        '403':
+          description: Permisos insuficientes (falta permiso de gestión de usuarios)
+
+  /administrativos/menores-pendientes:
+    get:
+      tags:
+        - Administrativos
+      summary: Listar pacientes menores pendientes de validación
+      description: Obtiene la lista de todos los menores con documentación cargada pendiente de revisión por el personal administrativo.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de menores pendientes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: No autenticado
+        '403':
+          description: Requiere rol administrativo activo
+
+  /administrativos/menores/{id}/aprobar:
+    patch:
+      tags:
+        - Administrativos
+      summary: Aprobar registro de menor
+      description: Habilita el estado ACTIVO del paciente menor tras verificar su documentación.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 5
+          description: ID del paciente menor a aprobar
+      responses:
+        '200':
+          description: Paciente menor aprobado con éxito
+        '401':
+          description: No autenticado
+        '403':
+          description: Requiere rol administrativo activo
+
+  /administrativos/menores/{id}/rechazar:
+    patch:
+      tags:
+        - Administrativos
+      summary: Rechazar registro de menor
+      description: Marca el registro como rechazado registrando el motivo en auditoría y notificando al responsable.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 5
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - motivo
+              properties:
+                motivo:
+                  type: string
+                  example: El documento presentado es ilegible.
+      responses:
+        '200':
+          description: Registro de menor rechazado
+        '400':
+          description: El motivo de rechazo es obligatorio
+        '401':
+          description: No autenticado
+        '403':
+          description: Requiere rol administrativo activo
+
+  /profesionales/registro:
+    post:
+      tags:
+        - Profesionales
+      summary: Registrar nuevo profesional de la salud
+      description: Da de alta a un médico o especialista asociando su matrícula y sus especialidades médicas.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistroProfesionalRequest'
+      responses:
+        '201':
+          description: Profesional registrado exitosamente
+        '400':
+          description: Datos inválidos
+        '401':
+          description: No autenticado
+        '403':
+          description: Requiere permiso de gestión de usuarios
+
+  /especialidades:
+    get:
+      tags:
+        - Especialidades
+      summary: Listar especialidades médicas
+      description: Retorna el catálogo completo de especialidades médicas activas.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Listado de especialidades
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Especialidad'
+
+  /obras-sociales:
+    get:
+      tags:
+        - Obras Sociales
+      summary: Listar obras sociales
+      description: Devuelve todas las obras sociales activas disponibles en el sanatorio.
+      responses:
+        '200':
+          description: Lista de obras sociales
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObraSocial'
+
+  /obras-sociales/{idObraSocial}/planes:
+    get:
+      tags:
+        - Obras Sociales
+      summary: Listar planes de una obra social
+      description: Devuelve los planes de cobertura vigentes para la obra social especificada.
+      parameters:
+        - name: idObraSocial
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Lista de planes asociados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Plan'
+
+  /documentos/{idDocumento}:
+    get:
+      tags:
+        - Documentos
+      summary: Obtener documento por ID
+      description: Devuelve la información y enlace seguro de un documento subido (requiere rol de administrativo).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: idDocumento
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 12
+      responses:
+        '200':
+          description: Información del documento obtenida
+        '401':
+          description: No autenticado
+        '403':
+          description: Requiere rol administrativo activo
+        '404':
+          description: Documento no encontrado
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Envía tu JWT en la cabecera Authorization con el prefijo Bearer.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Mensaje descriptivo del error
+        details:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            dni: El DNI debe tener entre 7 y 8 dígitos numéricos.
+
+    LoginRequest:
+      type: object
+      required:
+        - dni
+        - password
+      properties:
+        dni:
+          type: string
+          example: '12345678'
+        password:
+          type: string
+          example: 'Password123!'
+
+    LoginExitosoResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        rolActivo:
+          type: string
+          enum: [PACIENTE, PROFESIONAL, ADMINISTRATIVO]
+          example: PACIENTE
+        primerLogin:
+          type: boolean
+          example: false
+
+    SeleccionRolRequeridaResponse:
+      type: object
+      properties:
+        requiereSeleccionRol:
+          type: boolean
+          example: true
+        preSessionToken:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        rolesDisponibles:
+          type: array
+          items:
+            type: string
+            enum: [PACIENTE, PROFESIONAL, ADMINISTRATIVO]
+          example: [PACIENTE, ADMINISTRATIVO]
+        primerLogin:
+          type: boolean
+          example: false
+
+    SeleccionarRolRequest:
+      type: object
+      required:
+        - preSessionToken
+        - rol
+      properties:
+        preSessionToken:
+          type: string
+          example: eyJhbGciOiJIUzI1Ni...
+        rol:
+          type: string
+          enum: [PACIENTE, PROFESIONAL, ADMINISTRATIVO]
+          example: ADMINISTRATIVO
+
+    RefreshRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1Ni...
+
+    LogoutRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          example: eyJhbGciOiJIUzI1Ni...
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+
+    SolicitarRecuperacionRequest:
+      type: object
+      required:
+        - dni
+        - email
+      properties:
+        dni:
+          type: string
+          example: '12345678'
+        email:
+          type: string
+          format: email
+          example: usuario@ejemplo.com
+
+    RestablecerPasswordRequest:
+      type: object
+      required:
+        - token
+        - password
+        - confirmarPassword
+      properties:
+        token:
+          type: string
+          example: f9c028a389d...
+        password:
+          type: string
+          example: NuevaClave123!
+        confirmarPassword:
+          type: string
+          example: NuevaClave123!
+
+    CambiarPasswordRequest:
+      type: object
+      required:
+        - passwordActual
+        - nuevoPassword
+        - confirmarPassword
+      properties:
+        passwordActual:
+          type: string
+          example: ClaveVieja123!
+        nuevoPassword:
+          type: string
+          example: ClaveNueva123!
+        confirmarPassword:
+          type: string
+          example: ClaveNueva123!
+
+    RegistroPacienteForm:
+      type: object
+      required:
+        - dni
+        - nombre
+        - apellido
+        - email
+        - telefono
+        - fechaNacimiento
+        - sexo
+      properties:
+        dni:
+          type: string
+          example: '45123456'
+        nombre:
+          type: string
+          example: Lucas
+        apellido:
+          type: string
+          example: Romero
+        email:
+          type: string
+          format: email
+          example: lucas.romero@gmail.com
+        telefono:
+          type: string
+          example: '+5491122334455'
+        fechaNacimiento:
+          type: string
+          format: date
+          example: '2015-08-14'
+        sexo:
+          type: string
+          enum: [MASCULINO, FEMENINO, OTRO]
+          example: MASCULINO
+        idPlan:
+          type: integer
+          example: 2
+        idResponsable:
+          type: integer
+          description: ID del paciente responsable (requerido si es menor)
+          example: 1
+        parentesco:
+          type: string
+          description: Padre, Madre, Tutor Legal (requerido si es menor)
+          example: Padre
+        tipoDocumento:
+          type: string
+          example: Partida de Nacimiento
+        documento:
+          type: string
+          format: binary
+          description: Archivo digitalizado del documento probatorio
+
+    RegistroAdministrativoRequest:
+      type: object
+      required:
+        - dni
+        - nombre
+        - apellido
+        - email
+        - telefono
+        - puesto
+      properties:
+        dni:
+          type: string
+          example: '28123456'
+        nombre:
+          type: string
+          example: Laura
+        apellido:
+          type: string
+          example: Benítez
+        email:
+          type: string
+          format: email
+          example: laura.benitez@sanatorio.com
+        telefono:
+          type: string
+          example: '+5491133445566'
+        puesto:
+          type: string
+          example: Recepción Central
+        permisoGestionUsuarios:
+          type: boolean
+          default: false
+        telefonoAlternativo:
+          type: string
+          example: '+5491177889900'
+        emailAlternativo:
+          type: string
+          format: email
+          example: laura.alt@sanatorio.com
+
+    RegistroProfesionalRequest:
+      type: object
+      required:
+        - dni
+        - nombre
+        - apellido
+        - email
+        - telefono
+        - matricula
+        - especialidadesIds
+      properties:
+        dni:
+          type: string
+          example: '32123456'
+        nombre:
+          type: string
+          example: Martín
+        apellido:
+          type: string
+          example: Silva
+        email:
+          type: string
+          format: email
+          example: dr.silva@sanatorio.com
+        telefono:
+          type: string
+          example: '+5491155667788'
+        matricula:
+          type: string
+          example: MN-45912
+        especialidadesIds:
+          type: array
+          items:
+            type: integer
+          example: [1, 3]
+        telefonoAlternativo:
+          type: string
+          example: '+5491144332211'
+        emailAlternativo:
+          type: string
+          format: email
+          example: dr.silva.alt@sanatorio.com
+
+    ObraSocial:
+      type: object
+      properties:
+        idObraSocial:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          example: OSDE
+        descripcion:
+          type: string
+          example: Organización de Servicios Directos Empresarios
+        estado:
+          type: string
+          example: ACTIVO
+
+    Plan:
+      type: object
+      properties:
+        idPlan:
+          type: integer
+          example: 10
+        idObraSocial:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          example: Plan 210
+        descripcion:
+          type: string
+          example: Cobertura básica ambulatoria y de internación
+        estado:
+          type: string
+          example: ACTIVO
+
+    Especialidad:
+      type: object
+      properties:
+        idEspecialidad:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          example: Cardiología
+        descripcion:
+          type: string
+          example: Atención del sistema cardiovascular
+        estado:
+          type: string
+          example: ACTIVO
