@@ -12,6 +12,7 @@ import profesionalRoutes from './routes/profesionalRoutes';
 import especialidadRoutes from './routes/especialidadRoutes';
 import obraSocialRoutes from './routes/obraSocialRoutes';
 import documentosRoutes from './routes/documentosRoutes';
+import turnoRoutes from './routes/turnoRoutes';
 
 const app: Application = express();
 
@@ -51,14 +52,16 @@ apiRouter.use('/profesionales', profesionalRoutes);
 apiRouter.use('/especialidades', especialidadRoutes);
 apiRouter.use('/obras-sociales', obraSocialRoutes);
 apiRouter.use('/documentos', documentosRoutes);
+apiRouter.use('/turnos', turnoRoutes);
 
 // Healthcheck dentro del prefijo versionado
 apiRouter.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Montaje con prefijo versionado /api/v1 y soporte retroactivo en raíz /
+// Montaje con prefijo versionado /api/v1, prefijo /api y soporte retroactivo en raíz /
 app.use('/api/v1', apiRouter);
+app.use('/api', apiRouter);
 app.use('/', apiRouter);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas

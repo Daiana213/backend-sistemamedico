@@ -37,6 +37,8 @@ tags:
     description: Consulta de obras sociales y planes médicos
   - name: Documentos
     description: Descarga y visualización de documentación de pacientes
+  - name: Turnos
+    description: Reserva y gestión de turnos médicos con validación de perfil obligatorio
 
 paths:
   /health:
@@ -351,6 +353,95 @@ paths:
         '403':
           description: No autorizado para el menor indicado
 
+  /pacientes/perfil:
+    get:
+      tags:
+        - Pacientes
+      summary: Obtener datos del perfil del paciente autenticado
+      description: >
+        Devuelve la información del paciente, junto con la verificación de si su perfil está completo
+        o si faltan datos requeridos (email, sexo, obra social/plan) para solicitar turnos.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Perfil obtenido exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paciente:
+                    type: object
+                  perfilCompleto:
+                    type: boolean
+                    example: true
+                  camposFaltantes:
+                    type: array
+                    items:
+                      type: string
+                    example: []
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Perfil de paciente no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Pacientes
+      summary: Actualizar datos faltantes del perfil del paciente
+      description: Permite al paciente completar su correo electrónico, sexo (enum Sexo), obra social y plan, etc.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActualizarPerfilPacienteRequest'
+      responses:
+        '200':
+          description: Perfil actualizado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Perfil de paciente actualizado exitosamente.
+                  perfilCompleto:
+                    type: boolean
+                    example: true
+                  paciente:
+                    type: object
+        '400':
+          description: Datos inválidos o plan inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: El correo electrónico ya está en uso por otro usuario
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /administrativos/registro:
     post:
       tags:
@@ -570,6 +661,105 @@ paths:
           description: Requiere rol administrativo activo
         '404':
           description: Documento no encontrado
+
+  /turnos:
+    get:
+      tags:
+        - Turnos
+      summary: Listar turnos del usuario autenticado
+      description: Devuelve los turnos correspondientes al paciente o profesional autenticado, o todos los turnos para personal administrativo.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Listado de turnos obtenido con éxito
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Turno'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Turnos
+      summary: Crear / Solicitar turno médico
+      description: >
+        Crea un nuevo turno médico en estado SOLICITADO.
+        Verifica obligatoriamente que el paciente cuente con correo electrónico, sexo y obra social/plan registrados.
+        Si falta alguno de estos datos, responde con HTTP 403 y la lista de campos faltantes pidiendo completar el perfil.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrearTurnoRequest'
+      responses:
+        '201':
+          description: Turno creado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: Turno solicitado exitosamente.
+                  turno:
+                    $ref: '#/components/schemas/Turno'
+        '400':
+          description: Datos inválidos en la petición
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Perfil incompleto (requiere email, sexo, obra social/plan) o sin permisos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Para solicitar un turno debe completar los siguientes datos obligatorios de su perfil...
+                  details:
+                    type: object
+                    properties:
+                      camposFaltantes:
+                        type: array
+                        items:
+                          type: string
+                        example: ['correo electrónico (email)', 'sexo', 'obra social / plan']
+                      requiereCompletarPerfil:
+                        type: boolean
+                        example: true
+        '404':
+          description: Paciente o profesional no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: El profesional ya cuenta con un turno reservado para esa fecha y hora
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   securitySchemes:
@@ -917,3 +1107,83 @@ components:
         estado:
           type: string
           example: ACTIVO
+
+    ActualizarPerfilPacienteRequest:
+      type: object
+      description: Datos a actualizar del perfil del paciente. Debe incluir al menos un campo.
+      properties:
+        email:
+          type: string
+          format: email
+          example: paciente.actualizado@ejemplo.com
+        sexo:
+          type: string
+          enum: [MASCULINO, FEMENINO, OTRO]
+          example: MASCULINO
+        idObraSocial:
+          type: integer
+          example: 1
+        idPlan:
+          type: integer
+          example: 2
+        telefono:
+          type: string
+          example: '+5491122334455'
+        telefonoAlternativo:
+          type: string
+          example: '+5491199887766'
+        emailAlternativo:
+          type: string
+          format: email
+          example: paciente.alt@ejemplo.com
+
+    CrearTurnoRequest:
+      type: object
+      required:
+        - idProfesional
+        - fechaHora
+      properties:
+        idProfesional:
+          type: integer
+          example: 1
+        fechaHora:
+          type: string
+          format: date-time
+          example: '2026-10-15T14:30:00.000Z'
+        idPaciente:
+          type: integer
+          example: 5
+          description: Requerido solo cuando un administrativo crea el turno para un paciente.
+
+    Turno:
+      type: object
+      properties:
+        idTurno:
+          type: integer
+          example: 1
+        idPaciente:
+          type: integer
+          example: 5
+        idProfesional:
+          type: integer
+          example: 1
+        fechaHora:
+          type: string
+          format: date-time
+          example: '2026-10-15T14:30:00.000Z'
+        estado:
+          type: string
+          enum: [SOLICITADO, CONFIRMADO, REPROGRAMADO, CANCELADO, COMPLETADO]
+          example: SOLICITADO
+        motivoCancelacion:
+          type: string
+          nullable: true
+          example: null
+        paciente:
+          type: object
+        profesional:
+          type: object
+        consulta:
+          type: object
+          nullable: true
+

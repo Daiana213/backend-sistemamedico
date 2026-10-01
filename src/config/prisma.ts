@@ -7,9 +7,14 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
+const isRemoteDb =
+  process.env.DATABASE_URL?.includes('render.com') ||
+  process.env.DATABASE_URL?.includes('sslmode=require') ||
+  process.env.NODE_ENV === 'production';
+
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
-  //ssl: { rejectUnauthorized: false } Se usa para el seed
+  ...(isRemoteDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 const adapter = new PrismaPg(pool);
 

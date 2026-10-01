@@ -7,16 +7,18 @@ datasource db {
 }
 
 model Usuario {
-  idUsuario            Int                 @id @default(autoincrement()) @map("id_usuario")
-  dni                  String              @unique @db.VarChar(20)
-  nombre               String              @db.VarChar(100)
-  apellido             String              @db.VarChar(100)
-  telefono             String              @db.VarChar(30)
-  email                String              @unique @db.VarChar(150)
-  passwordHash         String              @map("password_hash") @db.VarChar(255)
-  primerLogin          Boolean             @default(true) @map("primer_login")
+  idUsuario            Int                  @id @default(autoincrement()) @map("id_usuario")
+  dni                  String               @unique @db.VarChar(20)
+  nombre               String               @db.VarChar(100)
+  apellido             String               @db.VarChar(100)
+  telefono             String               @db.VarChar(30)
+  email                String?              @unique @db.VarChar(150)
+  passwordHash         String               @map("password_hash") @db.VarChar(255)
+  primerLogin          Boolean              @default(true) @map("primer_login")
+  intentosFallidos     Int                  @default(0) @map("intentos_fallidos")
+  bloqueadoHasta       DateTime?            @map("bloqueado_hasta") @db.Timestamp(6)
   estado               EstadoActivo
-  fechaAlta            DateTime            @map("fecha_alta") @db.Timestamp(6)
+  fechaAlta            DateTime             @map("fecha_alta") @db.Timestamp(6)
   administrativo       Administrativo?
   auditorias           Auditoria[]
   paciente             Paciente?
@@ -96,19 +98,20 @@ model Plan {
 }
 
 model Paciente {
-  idPaciente      Int                   @id @default(autoincrement()) @map("id_paciente")
-  idUsuario       Int                   @unique @map("id_usuario")
-  fechaNacimiento DateTime              @map("fecha_nacimiento") @db.Date
-  sexo            Sexo
-  idPlan          Int?                  @map("id_plan")
-  estado          EstadoPaciente
-  fechaRegistro   DateTime              @map("fecha_registro") @db.Timestamp(6)
-  plan            Plan?                 @relation(fields: [idPlan], references: [idPlan], onDelete: NoAction, onUpdate: NoAction)
-  usuario         Usuario               @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
-  responsables    PacienteResponsable[] @relation("PacienteDeResponsable")
-  aCargoDe        PacienteResponsable[] @relation("ResponsableDePaciente")
-  telefonoAlternativo String? @map("telefono_alternativo") @db.VarChar(30)
-  emailAlternativo    String? @map("email_alternativo") @db.VarChar(150)
+  idPaciente          Int                   @id @default(autoincrement()) @map("id_paciente")
+  idUsuario           Int                   @unique @map("id_usuario")
+  fechaNacimiento     DateTime              @map("fecha_nacimiento") @db.Date
+  sexo                Sexo?
+  idPlan              Int?                  @map("id_plan")
+  estado              EstadoPaciente
+  fechaRegistro       DateTime              @map("fecha_registro") @db.Timestamp(6)
+  plan                Plan?                 @relation(fields: [idPlan], references: [idPlan], onDelete: NoAction, onUpdate: NoAction)
+  usuario             Usuario               @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
+  responsables        PacienteResponsable[] @relation("PacienteDeResponsable")
+  aCargoDe            PacienteResponsable[] @relation("ResponsableDePaciente")
+  telefonoAlternativo String?               @map("telefono_alternativo") @db.VarChar(30)
+  emailAlternativo    String?               @map("email_alternativo") @db.VarChar(150)
+  turnos              Turno[]
 
   @@map("paciente")
 }
@@ -145,16 +148,18 @@ model DocumentoResponsable {
 }
 
 model Profesional {
-  idProfesional  Int                       @id @default(autoincrement()) @map("id_profesional")
-  idUsuario      Int                       @unique @map("id_usuario")
-  matricula      String                    @unique @db.VarChar(50)
-  estado         EstadoActivo
-  fechaAlta      DateTime                  @map("fecha_alta") @db.Date
-  fechaBaja      DateTime?                 @map("fecha_baja") @db.Date
-  usuario        Usuario                   @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
-  telefonoAlternativo String? @map("telefono_alternativo") @db.VarChar(30)
-  emailAlternativo    String? @map("email_alternativo") @db.VarChar(150)
-  especialidades ProfesionalEspecialidad[]
+  idProfesional       Int                       @id @default(autoincrement()) @map("id_profesional")
+  idUsuario           Int                       @unique @map("id_usuario")
+  matricula           String                    @unique @db.VarChar(50)
+  estado              EstadoActivo
+  fechaAlta           DateTime                  @map("fecha_alta") @db.Date
+  fechaBaja           DateTime?                 @map("fecha_baja") @db.Date
+  usuario             Usuario                   @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
+  telefonoAlternativo String?                   @map("telefono_alternativo") @db.VarChar(30)
+  emailAlternativo    String?                   @map("email_alternativo") @db.VarChar(150)
+  especialidades      ProfesionalEspecialidad[]
+  turnos              Turno[]
+  agendas             AgendaProfesional[]
 
   @@map("profesional")
 }
@@ -181,6 +186,45 @@ model ProfesionalEspecialidad {
   @@map("profesional_especialidad")
 }
 
+model AgendaProfesional {
+  idAgendaProfesional  Int          @id @default(autoincrement()) @map("id_agenda_profesional")
+  idProfesional        Int          @map("id_profesional")
+  diaSemana            Int          @map("dia_semana") // 0: Domingo, 1: Lunes, 2: Martes, 3: Miércoles, 4: Jueves, 5: Viernes, 6: Sábado
+  horaInicio           String       @map("hora_inicio") @db.VarChar(10) // Formato "HH:mm" (ej. "08:00")
+  horaFin              String       @map("hora_fin") @db.VarChar(10)    // Formato "HH:mm" (ej. "17:00")
+  duracionTurnoMinutos Int          @default(30) @map("duracion_turno_minutos")
+  estado               EstadoActivo @default(ACTIVO)
+  profesional          Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("agenda_profesional")
+}
+
+model Turno {
+  idTurno           Int          @id @default(autoincrement()) @map("id_turno")
+  idPaciente        Int          @map("id_paciente")
+  idProfesional     Int          @map("id_profesional")
+  fechaHora         DateTime     @map("fecha_hora") @db.Timestamp(6)
+  estado            EstadoTurno  @default(SOLICITADO)
+  motivoCancelacion String?      @map("motivo_cancelacion") @db.VarChar(500)
+  consulta          Consulta?
+  paciente          Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: NoAction, onUpdate: NoAction)
+  profesional       Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("turno")
+}
+
+model Consulta {
+  idConsulta       Int      @id @default(autoincrement()) @map("id_consulta")
+  idTurno          Int      @unique @map("id_turno")
+  diagnostico      String?  @db.Text
+  tratamiento      String?  @db.Text
+  notasAdicionales String?  @map("notas_adicionales") @db.Text
+  fechaRealizacion DateTime @default(now()) @map("fecha_realizacion") @db.Timestamp(6)
+  turno            Turno    @relation(fields: [idTurno], references: [idTurno], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("consulta")
+}
+
 model Administrativo {
   idAdministrativo       Int          @id @default(autoincrement()) @map("id_administrativo")
   idUsuario              Int          @unique @map("id_usuario")
@@ -188,8 +232,8 @@ model Administrativo {
   permisoGestionUsuarios Boolean      @default(false) @map("permiso_gestion_usuarios")
   estado                 EstadoActivo
   usuario                Usuario      @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
-  telefonoAlternativo String? @map("telefono_alternativo") @db.VarChar(30)
-  emailAlternativo    String? @map("email_alternativo") @db.VarChar(150)
+  telefonoAlternativo    String?      @map("telefono_alternativo") @db.VarChar(30)
+  emailAlternativo       String?      @map("email_alternativo") @db.VarChar(150)
 
   @@map("administrativo")
 }
@@ -239,4 +283,14 @@ enum Sexo {
   OTRO
 
   @@map("sexo")
+}
+
+enum EstadoTurno {
+  SOLICITADO
+  CONFIRMADO
+  REPROGRAMADO
+  CANCELADO
+  COMPLETADO
+
+  @@map("estado_turno")
 }
