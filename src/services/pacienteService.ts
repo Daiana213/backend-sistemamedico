@@ -33,11 +33,26 @@ export async function registrarPaciente(datos: RegistrarPacienteInput, archivo?:
     return agregarRolPaciente(usuarioExistente.idUsuario, datos, archivo);
   }
 
-  const plan = await prisma.plan.findFirst({
-    where: { idPlan: datos.idPlan, idObraSocial: datos.idObraSocial, estado: 'ACTIVO' },
-  });
-  if (!plan) {
-    throw new AppError('La obra social y el plan seleccionados no son válidos.', 400);
+  if (datos.idPlan) {
+    const plan = await prisma.plan.findFirst({
+      where: {
+        idPlan: datos.idPlan,
+        ...(datos.idObraSocial ? { idObraSocial: datos.idObraSocial } : {}),
+        estado: 'ACTIVO',
+      },
+    });
+    if (!plan) {
+      throw new AppError('La obra social y el plan seleccionados no son válidos.', 400);
+    }
+  }
+
+  if (datos.email) {
+    const usuarioConEmail = await prisma.usuario.findFirst({
+      where: { email: datos.email },
+    });
+    if (usuarioConEmail) {
+      throw new AppError('El correo electrónico ingresado ya se encuentra registrado.', 409);
+    }
   }
 
   const rolPaciente = await prisma.rol.findFirst({ where: { nombre: 'PACIENTE' } });
@@ -61,11 +76,17 @@ async function agregarRolPaciente(
   datos: RegistrarPacienteInput,
   archivo?: ArchivoDocumento
 ) {
-  const plan = await prisma.plan.findFirst({
-    where: { idPlan: datos.idPlan, idObraSocial: datos.idObraSocial, estado: 'ACTIVO' },
-  });
-  if (!plan) {
-    throw new AppError('La obra social y el plan seleccionados no son válidos.', 400);
+  if (datos.idPlan) {
+    const plan = await prisma.plan.findFirst({
+      where: {
+        idPlan: datos.idPlan,
+        ...(datos.idObraSocial ? { idObraSocial: datos.idObraSocial } : {}),
+        estado: 'ACTIVO',
+      },
+    });
+    if (!plan) {
+      throw new AppError('La obra social y el plan seleccionados no son válidos.', 400);
+    }
   }
 
   const rolPaciente = await prisma.rol.findFirst({ where: { nombre: 'PACIENTE' } });
@@ -80,8 +101,8 @@ async function agregarRolPaciente(
       data: {
         idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
-        sexo: datos.sexo,
-        idPlan: datos.idPlan,
+        sexo: datos.sexo ?? null,
+        idPlan: datos.idPlan ?? null,
         estado: esMenor ? 'PENDIENTE_APROBACION' : 'ACTIVO',
         fechaRegistro: new Date(),
         telefonoAlternativo: datos.telefonoAlternativo ?? null,
@@ -152,7 +173,7 @@ async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: num
         nombre: datos.nombre,
         apellido: datos.apellido,
         telefono: datos.telefono,
-        email: datos.email,
+        email: datos.email ?? null,
         passwordHash,
         estado: 'ACTIVO',
         fechaAlta: new Date(),
@@ -164,8 +185,8 @@ async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: num
       data: {
         idUsuario: nuevoUsuario.idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
-        sexo: datos.sexo,
-        idPlan: datos.idPlan,
+        sexo: datos.sexo ?? null,
+        idPlan: datos.idPlan ?? null,
         estado: 'ACTIVO',
         fechaRegistro: new Date(),
       },
@@ -210,7 +231,7 @@ async function registrarPacienteMenor(
         nombre: datos.nombre,
         apellido: datos.apellido,
         telefono: datos.telefono,
-        email: datos.email,
+        email: datos.email ?? null,
         passwordHash,
         estado: 'ACTIVO',
         fechaAlta: new Date(),
@@ -222,8 +243,8 @@ async function registrarPacienteMenor(
       data: {
         idUsuario: nuevoUsuario.idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
-        sexo: datos.sexo,
-        idPlan: datos.idPlan,
+        sexo: datos.sexo ?? null,
+        idPlan: datos.idPlan ?? null,
         estado: 'PENDIENTE_APROBACION', // Escenario 4.1: queda pendiente de aprobación por el administrador
         fechaRegistro: new Date(),
       },

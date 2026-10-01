@@ -20,11 +20,23 @@ export const registrarPacienteSchema = z
     apellido: z.string().trim().min(1, 'El apellido es obligatorio.'),
     dni: z.string().regex(/^\d{7,8}$/, MENSAJES_TIPO.dni),
     telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono),
-    idObraSocial: z.coerce.number({ error: 'Debe seleccionar una obra social válida.' }).int().positive('Debe seleccionar una obra social válida.'),
-    idPlan: z.coerce.number({ error: msg.plan.seleccionar }).int().positive(msg.plan.seleccionar),
+    idObraSocial: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+      z.number({ error: 'Debe seleccionar una obra social válida.' }).int().positive('Debe seleccionar una obra social válida.').optional()
+    ),
+    idPlan: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+      z.number({ error: msg.plan.seleccionar }).int().positive(msg.plan.seleccionar).optional()
+    ),
     fechaNacimiento: z.coerce.date({ error: MENSAJES_TIPO.fecha }),
-    sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }),
-    email: z.string().trim().email(MENSAJES_TIPO.email),
+    sexo: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : v),
+      z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }).optional()
+    ),
+    email: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : typeof v === 'string' ? v.trim() : v),
+      z.string().email(MENSAJES_TIPO.email).optional()
+    ),
     password: z
       .string()
       .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, MENSAJES_TIPO.password),
@@ -54,29 +66,58 @@ export const registrarPacienteSchema = z
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: msg.tipoDocumento.seleccionar, path: ['tipoDocumento'] });
       }
     }
+
+    if ((datos.idPlan && !datos.idObraSocial) || (!datos.idPlan && datos.idObraSocial)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Si selecciona una obra social o un plan, debe indicar ambos.',
+        path: [datos.idPlan ? 'idObraSocial' : 'idPlan'],
+      });
+    }
   });
 
 export type RegistrarPacienteInput = z.infer<typeof registrarPacienteSchema>;
 
 export const actualizarPerfilPacienteSchema = z
   .object({
-    email: z.string().trim().email(MENSAJES_TIPO.email).optional(),
-    sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }).optional(),
-    idObraSocial: z.coerce.number().int().positive('Debe seleccionar una obra social válida.').optional(),
-    idPlan: z.coerce.number().int().positive(msg.plan.seleccionar).optional(),
-    telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional(),
-    telefonoAlternativo: z
-      .string()
-      .trim()
-      .regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono)
-      .nullable()
-      .optional(),
-    emailAlternativo: z
-      .string()
-      .trim()
-      .email(MENSAJES_TIPO.email)
-      .nullable()
-      .optional(),
+    email: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : typeof v === 'string' ? v.trim() : v),
+      z.string().email(MENSAJES_TIPO.email).optional()
+    ),
+    sexo: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : v),
+      z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }).optional()
+    ),
+    idObraSocial: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+      z.number().int().positive('Debe seleccionar una obra social válida.').optional()
+    ),
+    idPlan: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+      z.number().int().positive(msg.plan.seleccionar).optional()
+    ),
+    telefono: z.preprocess(
+      (v) => (v === '' || v === null || v === undefined ? undefined : v),
+      z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional()
+    ),
+    telefonoAlternativo: z.preprocess(
+      (v) => (v === '' || v === undefined ? null : v),
+      z
+        .string()
+        .trim()
+        .regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono)
+        .nullable()
+        .optional()
+    ),
+    emailAlternativo: z.preprocess(
+      (v) => (v === '' || v === undefined ? null : typeof v === 'string' ? v.trim() : v),
+      z
+        .string()
+        .trim()
+        .email(MENSAJES_TIPO.email)
+        .nullable()
+        .optional()
+    ),
   })
   .refine(
     (datos) =>
