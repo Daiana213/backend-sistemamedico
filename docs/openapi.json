@@ -270,6 +270,70 @@
             "example": "La partida de nacimiento no es legible."
           }
         }
+      },
+      "ActualizarPerfilPacienteRequest": {
+        "type": "object",
+        "description": "Datos a actualizar del paciente. Debe enviarse al menos un campo.",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "paciente.actualizado@ejemplo.com"
+          },
+          "sexo": {
+            "type": "string",
+            "enum": [
+              "MASCULINO",
+              "FEMENINO",
+              "OTRO"
+            ],
+            "example": "MASCULINO"
+          },
+          "idObraSocial": {
+            "type": "integer",
+            "example": 1
+          },
+          "idPlan": {
+            "type": "integer",
+            "example": 2
+          },
+          "telefono": {
+            "type": "string",
+            "example": "+5491122334455"
+          },
+          "telefonoAlternativo": {
+            "type": "string",
+            "example": "+5491199887766"
+          },
+          "emailAlternativo": {
+            "type": "string",
+            "format": "email",
+            "example": "paciente.alt@ejemplo.com"
+          }
+        }
+      },
+      "CrearTurnoRequest": {
+        "type": "object",
+        "required": [
+          "idProfesional",
+          "fechaHora"
+        ],
+        "properties": {
+          "idProfesional": {
+            "type": "integer",
+            "example": 1
+          },
+          "fechaHora": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-15T14:30:00.000Z"
+          },
+          "idPaciente": {
+            "type": "integer",
+            "example": 5,
+            "description": "Obligatorio solo si el turno es registrado por un administrativo."
+          }
+        }
       }
     }
   },
@@ -838,6 +902,128 @@
           },
           "403": {
             "description": "Requiere rol de administrativo activo."
+          }
+        }
+      }
+    },
+    "/pacientes/perfil": {
+      "get": {
+        "summary": "Obtener datos del perfil del paciente autenticado",
+        "tags": [
+          "Pacientes"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Datos del perfil recuperados con éxito."
+          },
+          "401": {
+            "description": "No autenticado."
+          },
+          "404": {
+            "description": "Perfil de paciente no encontrado."
+          }
+        }
+      },
+      "put": {
+        "summary": "Actualizar datos faltantes del perfil del paciente (email, sexo, obra social/plan)",
+        "tags": [
+          "Pacientes"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActualizarPerfilPacienteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil actualizado exitosamente."
+          },
+          "400": {
+            "description": "Datos inválidos o plan inexistente."
+          },
+          "401": {
+            "description": "No autenticado."
+          },
+          "409": {
+            "description": "El correo electrónico ya está en uso."
+          }
+        }
+      }
+    },
+    "/turnos": {
+      "get": {
+        "summary": "Listar turnos del usuario autenticado",
+        "tags": [
+          "Turnos"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado de turnos."
+          },
+          "401": {
+            "description": "No autenticado."
+          }
+        }
+      },
+      "post": {
+        "summary": "Crear / Solicitar turno médico (Valida perfil completo del paciente)",
+        "description": "Verifica si el paciente tiene email, sexo y obra social/plan cargados. Si falta alguno, devuelve 403 pidiendo completar el perfil.",
+        "tags": [
+          "Turnos"
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrearTurnoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Turno solicitado exitosamente."
+          },
+          "400": {
+            "description": "Datos inválidos."
+          },
+          "401": {
+            "description": "No autenticado."
+          },
+          "403": {
+            "description": "Perfil incompleto. Debe completar email, sexo y obra social/plan en /api/pacientes/perfil antes de solicitar turno."
+          },
+          "404": {
+            "description": "Profesional o paciente no encontrado."
+          },
+          "409": {
+            "description": "El profesional ya tiene un turno reservado para esa fecha y hora."
           }
         }
       }

@@ -12,6 +12,7 @@ import profesionalRoutes from './routes/profesionalRoutes';
 import especialidadRoutes from './routes/especialidadRoutes';
 import obraSocialRoutes from './routes/obraSocialRoutes';
 import documentosRoutes from './routes/documentosRoutes';
+import turnoRoutes from './routes/turnoRoutes';
 
 const app: Application = express();
 
@@ -51,6 +52,7 @@ apiRouter.use('/profesionales', profesionalRoutes);
 apiRouter.use('/especialidades', especialidadRoutes);
 apiRouter.use('/obras-sociales', obraSocialRoutes);
 apiRouter.use('/documentos', documentosRoutes);
+apiRouter.use('/turnos', turnoRoutes);
 
 // Healthcheck dentro del prefijo versionado
 apiRouter.get('/health', (req, res) => {

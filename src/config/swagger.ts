@@ -148,6 +148,19 @@ export const swaggerSpec = {
           emailAlternativo: { type: 'string', format: 'email', example: 'paciente.alt@ejemplo.com' },
         },
       },
+      CrearTurnoRequest: {
+        type: 'object',
+        required: ['idProfesional', 'fechaHora'],
+        properties: {
+          idProfesional: { type: 'integer', example: 1 },
+          fechaHora: { type: 'string', format: 'date-time', example: '2026-10-15T14:30:00.000Z' },
+          idPaciente: {
+            type: 'integer',
+            example: 5,
+            description: 'Obligatorio solo si el turno es registrado por un administrativo.',
+          },
+        },
+      },
     },
   },
   paths: {
@@ -543,6 +556,43 @@ export const swaggerSpec = {
           400: { description: 'Datos inválidos o plan inexistente.' },
           401: { description: 'No autenticado.' },
           409: { description: 'El correo electrónico ya está en uso.' },
+        },
+      },
+    },
+    '/turnos': {
+      get: {
+        summary: 'Listar turnos del usuario autenticado',
+        tags: ['Turnos'],
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: { description: 'Listado de turnos.' },
+          401: { description: 'No autenticado.' },
+        },
+      },
+      post: {
+        summary: 'Crear / Solicitar turno médico (Valida perfil completo del paciente)',
+        description:
+          'Verifica si el paciente tiene email, sexo y obra social/plan cargados. Si falta alguno, devuelve 403 pidiendo completar el perfil.',
+        tags: ['Turnos'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CrearTurnoRequest' },
+            },
+          },
+        },
+        responses: {
+          201: { description: 'Turno solicitado exitosamente.' },
+          400: { description: 'Datos inválidos.' },
+          401: { description: 'No autenticado.' },
+          403: {
+            description:
+              'Perfil incompleto. Debe completar email, sexo y obra social/plan en /api/pacientes/perfil antes de solicitar turno.',
+          },
+          404: { description: 'Profesional o paciente no encontrado.' },
+          409: { description: 'El profesional ya tiene un turno reservado para esa fecha y hora.' },
         },
       },
     },
