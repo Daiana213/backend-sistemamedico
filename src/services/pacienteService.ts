@@ -2,7 +2,10 @@ import { prisma } from '../config/prisma';
 import { hashPassword } from '../utils/password';
 import { calcularEdad } from '../utils/edad';
 import { AppError } from '../utils/AppError';
-import { RegistrarPacienteInput } from '../validations/pacienteValidation';
+import {
+  RegistrarPacienteInput,
+  ActualizarPerfilPacienteInput,
+} from '../validations/pacienteValidation';
 
 const MENSAJE_DNI_DUPLICADO =
   'El DNI ingresado ya se encuentra registrado en el sistema.';
@@ -259,4 +262,198 @@ async function registrarPacienteMenor(
     idUsuario: usuario.idUsuario,
     mensaje: 'Registro recibido. Queda pendiente de aprobación por el administrador.',
   };
+}
+
+// ─── Perfil de Paciente ───────────────────────────────────────────────────────
+
+export async function actualizarPerfilPaciente(
+  idUsuario: number,
+  datos: ActualizarPerfilPacienteInput
+) {
+  const paciente = await prisma.paciente.findUnique({
+    where: { idUsuario },
+    include: {
+      usuario: true,
+      plan: {
+        include: {
+          obraSocial: true,
+        },
+      },
+    },
+  });
+
+  if (!paciente) {
+    throw new AppError('No se encontró el perfil de paciente asociado a este usuario.', 404);
+  }
+
+  // Si se envió email, verificar que no esté duplicado en otro usuario
+  if (datos.email && datos.email !== paciente.usuario.email) {
+    const usuarioConEmail = await prisma.usuario.findFirst({
+      where: {
+        email: datos.email,
+        idUsuario: { not: idUsuario },
+      },
+    });
+
+    if (usuarioConEmail) {
+      throw new AppError('El correo electrónico ingresado ya se encuentra registrado por otro usuario.', 409);
+    }
+  }
+
+  // Si se envió idPlan, validar que exista activo
+  if (datos.idPlan) {
+    const plan = await prisma.plan.findFirst({
+      where: {
+        idPlan: datos.idPlan,
+        ...(datos.idObraSocial ? { idObraSocial: datos.idObraSocial } : {}),
+        estado: 'ACTIVO',
+      },
+    });
+
+    if (!plan) {
+      throw new AppError('El plan o la obra social seleccionada no es válida o no está activa.', 400);
+    }
+  }
+
+  // Actualización en transacción
+  await prisma.$transaction(async (tx) => {
+    if (datos.email !== undefined || datos.telefono !== undefined) {
+      await tx.usuario.update({
+        where: { idUsuario },
+        data: {
+          ...(datos.email !== undefined ? { email: datos.email } : {}),
+          ...(datos.telefono !== undefined ? { telefono: datos.telefono } : {}),
+        },
+      });
+    }
+
+    if (
+      datos.sexo !== undefined ||
+      datos.idPlan !== undefined ||
+      datos.telefonoAlternativo !== undefined ||
+      datos.emailAlternativo !== undefined
+    ) {
+      await tx.paciente.update({
+        where: { idPaciente: paciente.idPaciente },
+        data: {
+          ...(datos.sexo !== undefined ? { sexo: datos.sexo } : {}),
+          ...(datos.idPlan !== undefined ? { idPlan: datos.idPlan } : {}),
+          ...(datos.telefonoAlternativo !== undefined ? { telefonoAlternativo: datos.telefonoAlternativo } : {}),
+          ...(datos.emailAlternativo !== undefined ? { emailAlternativo: datos.emailAlternativo } : {}),
+        },
+      });
+    }
+  });
+
+  // Retornar perfil actualizado
+  const pacienteActualizado = await prisma.paciente.findUnique({
+    where: { idPaciente: paciente.idPaciente },
+    include: {
+      usuario: {
+        select: {
+          idUsuario: true,
+          dni: true,
+          nombre: true,
+          apellido: true,
+          email: true,
+          telefono: true,
+          estado: true,
+        },
+      },
+      plan: {
+        include: {
+          obraSocial: true,
+        },
+      },
+    },
+  });
+
+  const perfilCompleto = Boolean(
+    pacienteActualizado?.usuario.email &&
+    pacienteActualizado?.sexo &&
+    pacienteActualizado?.idPlan
+  );
+
+  return {
+    mensaje: 'Perfil de paciente actualizado exitosamente.',
+    perfilCompleto,
+    paciente: pacienteActualizado,
+  };
+}
+
+export async function obtenerPerfilPaciente(idUsuario: number) {
+  const paciente = await prisma.paciente.findUnique({
+    where: { idUsuario },
+    include: {
+      usuario: {
+        select: {
+          idUsuario: true,
+          dni: true,
+          nombre: true,
+          apellido: true,
+          email: true,
+          telefono: true,
+          estado: true,
+        },
+      },
+      plan: {
+        include: {
+          obraSocial: true,
+        },
+      },
+    },
+  });
+
+  if (!paciente) {
+    throw new AppError('No se encontró el perfil de paciente asociado a este usuario.', 404);
+  }
+
+  const faltantes: string[] = [];
+  if (!paciente.usuario.email) faltantes.push('email');
+  if (!paciente.sexo) faltantes.push('sexo');
+  if (!paciente.idPlan) faltantes.push('obraSocial/plan');
+
+  return {
+    paciente,
+    perfilCompleto: faltantes.length === 0,
+    camposFaltantes: faltantes,
+  };
+}
+
+/**
+ * Valida si el paciente cuenta con todos los datos requeridos para poder solicitar o reservar un turno:
+ * - Email (en Usuario)
+ * - Sexo (en Paciente)
+ * - Obra social / Plan (en Paciente)
+ * Si falta alguno, arroja un AppError con código 403.
+ */
+export function verificarPerfilCompletoParaTurno(paciente: {
+  usuario?: { email: string | null } | null;
+  sexo: string | null;
+  idPlan: number | null;
+}) {
+  const camposFaltantes: string[] = [];
+
+  if (!paciente.usuario?.email) {
+    camposFaltantes.push('correo electrónico (email)');
+  }
+  if (!paciente.sexo) {
+    camposFaltantes.push('sexo');
+  }
+  if (!paciente.idPlan) {
+    camposFaltantes.push('obra social / plan');
+  }
+
+  if (camposFaltantes.length > 0) {
+    throw new AppError(
+      `Para solicitar un turno debe completar los siguientes datos obligatorios de su perfil: ${camposFaltantes.join(
+        ', '
+      )}. Por favor, actualice sus datos en /api/pacientes/perfil antes de continuar.`,
+      403,
+      {
+        camposFaltantes,
+        requiereCompletarPerfil: true,
+      }
+    );
+  }
 }

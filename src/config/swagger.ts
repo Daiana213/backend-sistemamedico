@@ -135,6 +135,19 @@ export const swaggerSpec = {
           motivo: { type: 'string', example: 'La partida de nacimiento no es legible.' },
         },
       },
+      ActualizarPerfilPacienteRequest: {
+        type: 'object',
+        description: 'Datos a actualizar del paciente. Debe enviarse al menos un campo.',
+        properties: {
+          email: { type: 'string', format: 'email', example: 'paciente.actualizado@ejemplo.com' },
+          sexo: { type: 'string', enum: ['MASCULINO', 'FEMENINO', 'OTRO'], example: 'MASCULINO' },
+          idObraSocial: { type: 'integer', example: 1 },
+          idPlan: { type: 'integer', example: 2 },
+          telefono: { type: 'string', example: '+5491122334455' },
+          telefonoAlternativo: { type: 'string', example: '+5491199887766' },
+          emailAlternativo: { type: 'string', format: 'email', example: 'paciente.alt@ejemplo.com' },
+        },
+      },
     },
   },
   paths: {
@@ -499,6 +512,37 @@ export const swaggerSpec = {
         responses: {
           200: { description: 'Documento recuperado correctamente.' },
           403: { description: 'Requiere rol de administrativo activo.' },
+        },
+      },
+    },
+    '/pacientes/perfil': {
+      get: {
+        summary: 'Obtener datos del perfil del paciente autenticado',
+        tags: ['Pacientes'],
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: { description: 'Datos del perfil recuperados con éxito.' },
+          401: { description: 'No autenticado.' },
+          404: { description: 'Perfil de paciente no encontrado.' },
+        },
+      },
+      put: {
+        summary: 'Actualizar datos faltantes del perfil del paciente (email, sexo, obra social/plan)',
+        tags: ['Pacientes'],
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ActualizarPerfilPacienteRequest' },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Perfil actualizado exitosamente.' },
+          400: { description: 'Datos inválidos o plan inexistente.' },
+          401: { description: 'No autenticado.' },
+          409: { description: 'El correo electrónico ya está en uso.' },
         },
       },
     },

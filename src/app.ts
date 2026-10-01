@@ -57,8 +57,9 @@ apiRouter.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Montaje con prefijo versionado /api/v1 y soporte retroactivo en raíz /
+// Montaje con prefijo versionado /api/v1, prefijo /api y soporte retroactivo en raíz /
 app.use('/api/v1', apiRouter);
+app.use('/api', apiRouter);
 app.use('/', apiRouter);
 
 // 404 para rutas no definidas — SIEMPRE después de todas las rutas

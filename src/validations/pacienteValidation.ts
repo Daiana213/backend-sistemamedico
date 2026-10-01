@@ -57,3 +57,38 @@ export const registrarPacienteSchema = z
   });
 
 export type RegistrarPacienteInput = z.infer<typeof registrarPacienteSchema>;
+
+export const actualizarPerfilPacienteSchema = z
+  .object({
+    email: z.string().trim().email(MENSAJES_TIPO.email).optional(),
+    sexo: z.enum(['MASCULINO', 'FEMENINO', 'OTRO'], { error: MENSAJES_TIPO.sexo }).optional(),
+    idObraSocial: z.coerce.number().int().positive('Debe seleccionar una obra social válida.').optional(),
+    idPlan: z.coerce.number().int().positive(msg.plan.seleccionar).optional(),
+    telefono: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional(),
+    telefonoAlternativo: z
+      .string()
+      .trim()
+      .regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono)
+      .nullable()
+      .optional(),
+    emailAlternativo: z
+      .string()
+      .trim()
+      .email(MENSAJES_TIPO.email)
+      .nullable()
+      .optional(),
+  })
+  .refine(
+    (datos) =>
+      datos.email !== undefined ||
+      datos.sexo !== undefined ||
+      datos.idPlan !== undefined ||
+      datos.telefono !== undefined ||
+      datos.telefonoAlternativo !== undefined ||
+      datos.emailAlternativo !== undefined,
+    {
+      message: 'Debe proporcionar al menos un dato para actualizar su perfil.',
+    }
+  );
+
+export type ActualizarPerfilPacienteInput = z.infer<typeof actualizarPerfilPacienteSchema>;
