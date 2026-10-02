@@ -210,6 +210,8 @@ model Turno {
   paciente          Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: NoAction, onUpdate: NoAction)
   profesional       Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([idProfesional, fechaHora], name: "idx_turno_profesional_fechahora")
+  @@index([idProfesional, fechaHora, estado], name: "idx_turno_profesional_fechahora_estado")
   @@map("turno")
 }
 
