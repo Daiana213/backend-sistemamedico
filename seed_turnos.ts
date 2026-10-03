@@ -31,34 +31,22 @@ async function main() {
   const manana = new Date(hoy);
   manana.setDate(manana.getDate() + 1);
   
-  await prisma.turno.create({
-    data: {
-      idProfesional,
-      idPaciente: idPaciente1,
-      fechaHora: hoy,
-      estado: 'CONFIRMADO' as any,
-    }
-  });
+  // Idempotente: no crea el turno si ya existe uno activo para ese profesional/horario
+  const crearSiNoExiste = async (idPaciente: number, fechaHora: Date, estado: 'CONFIRMADO' | 'SOLICITADO') => {
+    const existente = await prisma.turno.findFirst({
+      where: { idProfesional, fechaHora, estado: { in: ['SOLICITADO', 'CONFIRMADO'] } },
+    });
+    if (existente) return;
+    await prisma.turno.create({ data: { idProfesional, idPaciente, fechaHora, estado } });
+  };
+
+  await crearSiNoExiste(idPaciente1, hoy, 'CONFIRMADO');
 
   const hoyMasTarde = new Date(hoy);
   hoyMasTarde.setUTCHours(11, 30, 0, 0); // 11:30 AM UTC
-  await prisma.turno.create({
-    data: {
-      idProfesional,
-      idPaciente: idPaciente2,
-      fechaHora: hoyMasTarde,
-      estado: 'SOLICITADO' as any,
-    }
-  });
+  await crearSiNoExiste(idPaciente2, hoyMasTarde, 'SOLICITADO');
 
-  await prisma.turno.create({
-    data: {
-      idProfesional,
-      idPaciente: idPaciente1,
-      fechaHora: manana,
-      estado: 'SOLICITADO' as any,
-    }
-  });
+  await crearSiNoExiste(idPaciente1, manana, 'SOLICITADO');
 
   console.log('Turnos de prueba creados exitosamente.');
 }

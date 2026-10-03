@@ -10,11 +10,29 @@ export interface FiltrosAgenda {
   estado?: string;
 }
 
+// Argentina (America/Argentina/Buenos_Aires) es UTC-3 todo el año (sin horario de verano).
+// fechaHora se guarda en UTC, por lo que los límites de día se calculan con offset -03:00.
+const OFFSET_ARGENTINA = '-03:00';
+const FORMATO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+function limitesDiaArgentina(fecha: string, nombreParam: string) {
+  const inicio = new Date(`${fecha}T00:00:00.000${OFFSET_ARGENTINA}`);
+  const fin = new Date(`${fecha}T23:59:59.999${OFFSET_ARGENTINA}`);
+  if (!FORMATO_FECHA.test(fecha) || isNaN(inicio.getTime())) {
+    throw new AppError(`El parámetro ${nombreParam} debe tener formato YYYY-MM-DD.`, 400);
+  }
+  return { inicio, fin };
+}
+
 export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
-  // 1. Obtener el ID del Profesional (Aislamiento de Datos)
+  // 1. Obtener el Profesional desde el token (Aislamiento de Datos)
   const profesional = await prisma.profesional.findUnique({
     where: { idUsuario: filtros.idUsuario },
-    select: { idProfesional: true },
+    select: {
+      idProfesional: true,
+      matricula: true,
+      usuario: { select: { nombre: true, apellido: true } },
+    },
   });
 
   if (!profesional) {
@@ -29,32 +47,30 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
 
   // Filtro: Estado
   if (filtros.estado) {
-    // Check if the provided state is a valid enum value
     const uppercaseEstado = filtros.estado.toUpperCase();
-    if (Object.values(EstadoTurno).includes(uppercaseEstado as EstadoTurno)) {
-      whereClause.estado = uppercaseEstado as EstadoTurno;
+    if (!Object.values(EstadoTurno).includes(uppercaseEstado as EstadoTurno)) {
+      throw new AppError(
+        `Estado inválido. Valores permitidos: ${Object.values(EstadoTurno).join(', ')}.`,
+        400
+      );
     }
+    whereClause.estado = uppercaseEstado as EstadoTurno;
   }
 
-  // Filtros: Rango de fechas (Escenarios 1, 2 y 4)
+  // Filtros: Rango de fechas (día calendario en zona horaria de Argentina)
+  let rango = 'Todos los tiempos';
   if (filtros.fecha) {
-    // Agenda Diaria (Inicio del día hasta fin del día)
-    const inicioDia = new Date(`${filtros.fecha}T00:00:00.000Z`);
-    const finDia = new Date(`${filtros.fecha}T23:59:59.999Z`);
-    
-    whereClause.fechaHora = {
-      gte: inicioDia,
-      lte: finDia,
-    };
+    const { inicio, fin } = limitesDiaArgentina(filtros.fecha, 'fecha');
+    whereClause.fechaHora = { gte: inicio, lte: fin };
+    rango = filtros.fecha;
   } else if (filtros.fechaInicio && filtros.fechaFin) {
-    // Historial por rango de fechas
-    const inicioRango = new Date(`${filtros.fechaInicio}T00:00:00.000Z`);
-    const finRango = new Date(`${filtros.fechaFin}T23:59:59.999Z`);
-
-    whereClause.fechaHora = {
-      gte: inicioRango,
-      lte: finRango,
-    };
+    const { inicio } = limitesDiaArgentina(filtros.fechaInicio, 'fechaInicio');
+    const { fin } = limitesDiaArgentina(filtros.fechaFin, 'fechaFin');
+    if (inicio > fin) {
+      throw new AppError('fechaInicio no puede ser posterior a fechaFin.', 400);
+    }
+    whereClause.fechaHora = { gte: inicio, lte: fin };
+    rango = `${filtros.fechaInicio} a ${filtros.fechaFin}`;
   }
 
   // 3. Ejecución de la consulta a la Base de Datos
@@ -109,9 +125,13 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
   }));
 
   return {
+    profesional: {
+      nombreCompleto: `${profesional.usuario.nombre} ${profesional.usuario.apellido}`,
+      matricula: profesional.matricula,
+    },
     resumen: {
       totalTurnos: turnosMapeados.length,
-      rango: filtros.fecha || `${filtros.fechaInicio} a ${filtros.fechaFin}` || 'Todos los tiempos',
+      rango,
     },
     turnos: turnosMapeados,
   };

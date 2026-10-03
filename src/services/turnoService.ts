@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { AccessTokenPayload } from '../utils/jwt';
@@ -90,8 +91,12 @@ export async function crearTurno(
     );
   }
 
-  // 5. Crear el nuevo turno
-  const nuevoTurno = await prisma.turno.create({
+  // 5. Crear el nuevo turno. El índice único parcial
+  //    uq_turno_profesional_fechahora_activo garantiza la unicidad ante solicitudes
+  //    simultáneas; la violación (P2002) se traduce a 409.
+  let nuevoTurno;
+  try {
+  nuevoTurno = await prisma.turno.create({
     data: {
       idPaciente,
       idProfesional: datos.idProfesional,
@@ -129,6 +134,15 @@ export async function crearTurno(
       },
     },
   });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new AppError(
+        'El profesional ya cuenta con un turno reservado para esa fecha y hora.',
+        409
+      );
+    }
+    throw error;
+  }
 
   return {
     mensaje: 'Turno solicitado exitosamente.',
