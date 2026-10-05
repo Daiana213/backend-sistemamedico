@@ -19,7 +19,7 @@ import {
 } from '../validations/authValidation';
 
 const MENSAJE_CREDENCIALES_INVALIDAS = 'Credenciales inválidas. Por favor, intente nuevamente.';
-const MENSAJE_CUENTA_INACTIVA = 'Tu cuenta se encuentra inactiva. Contacta con la administración.';
+const MENSAJE_CUENTA_INACTIVA = 'Tu cuenta se encuentra inactiva. Contactate con administración.';
 const REFRESH_EXPIRES_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const PASSWORD_RESET_EXPIRES_MS = 60 * 60 * 1000; // 1 hora
 const MENSAJE_RECUPERACION_ENVIADA =
@@ -113,9 +113,34 @@ export async function login({ dni, password }: LoginInput) {
     throw new AppError(MENSAJE_CREDENCIALES_INVALIDAS, 401);
   }
 
+  if (usuario.bloqueadoHasta && usuario.bloqueadoHasta > new Date()) {
+    throw new AppError('Superaste el máximo de intentos. Intentá nuevamente en 30 minutos.', 403);
+  }
+
   const passwordValida = await comparePassword(password, usuario.passwordHash);
   if (!passwordValida) {
-    throw new AppError(MENSAJE_CREDENCIALES_INVALIDAS, 401);
+    const intentos = usuario.intentosFallidos + 1;
+    if (intentos >= 5) {
+      const bloqueadoHasta = new Date(Date.now() + 30 * 60 * 1000);
+      await prisma.usuario.update({
+        where: { idUsuario: usuario.idUsuario },
+        data: { intentosFallidos: intentos, bloqueadoHasta },
+      });
+      throw new AppError('Superaste el máximo de intentos. Intentá nuevamente en 30 minutos.', 403);
+    } else {
+      await prisma.usuario.update({
+        where: { idUsuario: usuario.idUsuario },
+        data: { intentosFallidos: intentos },
+      });
+      throw new AppError(MENSAJE_CREDENCIALES_INVALIDAS, 401);
+    }
+  }
+
+  if (usuario.intentosFallidos > 0) {
+    await prisma.usuario.update({
+      where: { idUsuario: usuario.idUsuario },
+      data: { intentosFallidos: 0, bloqueadoHasta: null },
+    });
   }
 
   if (usuario.estado !== 'ACTIVO') {
@@ -125,7 +150,7 @@ export async function login({ dni, password }: LoginInput) {
   const rolesDisponibles = resolverRolesDisponibles(usuario);
 
   if (rolesDisponibles.length === 0) {
-    throw new AppError('No tenés accesos activos en el sistema. Contactate con administración.', 403);
+    throw new AppError('Tu cuenta se encuentra inactiva. Contactate con administración.', 403);
   }
 
   if (rolesDisponibles.length === 1) {
