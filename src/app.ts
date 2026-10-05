@@ -13,8 +13,10 @@ import especialidadRoutes from './routes/especialidadRoutes';
 import obraSocialRoutes from './routes/obraSocialRoutes';
 import documentosRoutes from './routes/documentosRoutes';
 import turnoRoutes from './routes/turnoRoutes';
+import consultaRoutes from './routes/consultaRoutes';
 
 const app: Application = express();
+
 
 // Cabeceras de seguridad HTTP por default (deshabilitando CSP estricto para permitir Swagger UI)
 app.use(
@@ -53,6 +55,7 @@ apiRouter.use('/especialidades', especialidadRoutes);
 apiRouter.use('/obras-sociales', obraSocialRoutes);
 apiRouter.use('/documentos', documentosRoutes);
 apiRouter.use('/turnos', turnoRoutes);
+apiRouter.use('/consultas', consultaRoutes);
 
 // Healthcheck dentro del prefijo versionado
 apiRouter.get('/health', (req, res) => {
