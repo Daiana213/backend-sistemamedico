@@ -218,8 +218,9 @@ model Turno {
 model Consulta {
   idConsulta       Int      @id @default(autoincrement()) @map("id_consulta")
   idTurno          Int      @unique @map("id_turno")
-  diagnostico      String?  @db.Text
-  tratamiento      String?  @db.Text
+  motivoConsulta   String   @map("motivo_consulta") @db.Text
+  diagnostico      String   @db.Text
+  tratamiento      String   @db.Text
   notasAdicionales String?  @map("notas_adicionales") @db.Text
   fechaRealizacion DateTime @default(now()) @map("fecha_realizacion") @db.Timestamp(6)
   turno            Turno    @relation(fields: [idTurno], references: [idTurno], onDelete: NoAction, onUpdate: NoAction)

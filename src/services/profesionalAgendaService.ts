@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { Prisma, EstadoTurno } from '@prisma/client';
+import { ConfigurarAgendaDTO } from '../validations/agendaValidation';
 
 export interface FiltrosAgenda {
   idUsuario: number;
@@ -135,4 +136,104 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
     },
     turnos: turnosMapeados,
   };
+}
+
+export async function configurarAgenda(idProfesional: number, data: ConfigurarAgendaDTO, usuarioAdminId: number) {
+  const { agendas } = data;
+
+  // 1. Validar solapamientos internos
+  validarSolapamientosInternos(agendas);
+
+  // 2. Comprobar si existen turnos afectados
+  const turnosAfectados = await obtenerTurnosAfectados(idProfesional, agendas);
+
+  if (turnosAfectados.length > 0) {
+    throw new AppError('Hay turnos reservados o confirmados en los horarios que quieres eliminar o modificar.', 409, { turnosAfectados });
+  }
+
+  // 3. Ejecutar actualización atómica
+  await prisma.$transaction(async (tx) => {
+    // Eliminar agenda anterior
+    await tx.agendaProfesional.deleteMany({
+      where: { idProfesional }
+    });
+
+    // Crear la nueva agenda
+    await tx.agendaProfesional.createMany({
+      data: agendas.map(a => ({
+        ...a,
+        idProfesional
+      }))
+    });
+
+    // Registrar auditoría
+    await tx.auditoria.create({
+      data: {
+        idUsuario: usuarioAdminId,
+        fechaHora: new Date(),
+        accion: 'CONFIGURAR_AGENDA_PROFESIONAL',
+        tablaAfectada: 'agenda_profesional',
+        descripcion: `Se configuró la agenda del profesional con ID ${idProfesional}. Franjas: ${agendas.length}`
+      }
+    });
+  });
+
+  return { message: 'Agenda configurada correctamente' };
+}
+
+function validarSolapamientosInternos(agendas: ConfigurarAgendaDTO['agendas']) {
+  const porDia: Record<number, typeof agendas> = {};
+  agendas.forEach(a => {
+    if (!porDia[a.diaSemana]) porDia[a.diaSemana] = [];
+    porDia[a.diaSemana].push(a);
+  });
+
+  for (const dia in porDia) {
+    const franjas = porDia[dia].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio));
+    for (let i = 0; i < franjas.length - 1; i++) {
+      if (franjas[i + 1].horaInicio < franjas[i].horaFin) {
+        throw new AppError('Las franjas horarias no pueden superponerse en el mismo día.', 400);
+      }
+    }
+  }
+}
+
+async function obtenerTurnosAfectados(idProfesional: number, nuevasAgendas: ConfigurarAgendaDTO['agendas']) {
+  const hoy = new Date();
+
+  const turnosFuturos = await prisma.turno.findMany({
+    where: {
+      idProfesional,
+      fechaHora: { gte: hoy },
+      estado: { in: ['SOLICITADO', 'CONFIRMADO'] } // Mapeado a los estados en el schema
+    }
+  });
+
+  const turnosAfectados = turnosFuturos.filter(turno => {
+    // Calcular el día de la semana en la zona horaria local de Argentina (UTC-3)
+    const fechaTurno = new Date(turno.fechaHora);
+    // Ajustar offset para obtener día y hora en Argentina
+    const utcOffset = -3 * 60; // en minutos
+    const fechaLocal = new Date(fechaTurno.getTime() + utcOffset * 60000);
+    
+    const diaSemanaTurno = fechaLocal.getUTCDay();
+    const hora = fechaLocal.getUTCHours().toString().padStart(2, '0');
+    const minuto = fechaLocal.getUTCMinutes().toString().padStart(2, '0');
+    const horaInicioTurno = `${hora}:${minuto}`;
+
+    const franjasParaElDia = nuevasAgendas.filter(a => a.diaSemana === diaSemanaTurno);
+    
+    if (franjasParaElDia.length === 0) return true; // No hay franjas, turno afectado
+
+    // Comprobar si el turno cae dentro de la franja (suponemos que solo evaluamos el inicio del turno)
+    const estaEnFranja = franjasParaElDia.some(franja => {
+      // Deberíamos comprobar también que la horaInicioTurno + duracion esté dentro de la franja.
+      // Por simplicidad, comprobaremos que horaInicioTurno sea >= franja.horaInicio y < franja.horaFin
+      return horaInicioTurno >= franja.horaInicio && horaInicioTurno < franja.horaFin;
+    });
+
+    return !estaEnFranja;
+  });
+
+  return turnosAfectados;
 }
