@@ -112,6 +112,7 @@ model Paciente {
   telefonoAlternativo String?               @map("telefono_alternativo") @db.VarChar(30)
   emailAlternativo    String?               @map("email_alternativo") @db.VarChar(150)
   turnos              Turno[]
+  antecedentes        AntecedentesMedicos?
 
   @@map("paciente")
 }
@@ -296,4 +297,15 @@ enum EstadoTurno {
   COMPLETADO
 
   @@map("estado_turno")
+}
+
+model AntecedentesMedicos {
+  idAntecedentes       Int      @id @default(autoincrement()) @map("id_antecedentes")
+  idPaciente           Int      @unique @map("id_paciente")
+  alergias             String?  @db.Text
+  enfermedadesCronicas String?  @map("enfermedades_cronicas") @db.Text
+  grupoSanguineo       String?  @map("grupo_sanguineo") @db.VarChar(3)
+  paciente             Paciente @relation(fields: [idPaciente], references: [idPaciente], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("antecedentes_medicos")
 }

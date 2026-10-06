@@ -6,8 +6,11 @@ import {
   actualizarPerfilPacienteSchema,
 } from '../validations/pacienteValidation';
 import * as pacienteController from '../controllers/pacienteController';
+import * as antecedentesController from '../controllers/antecedentesController';
 import { uploadDocumentoResponsable } from '../middlewares/upload';
 import { reenviarDoc } from '../controllers/menorController';
+import { antecedentesMedicosSchema } from '../validations/antecedentesValidation';
+import { authorize } from '../middlewares/authorize';
 
 const router = Router();
 
@@ -40,6 +43,23 @@ router.patch(
   authenticate,
   uploadDocumentoResponsable.single('documento'),
   reenviarDoc
+);
+
+// Obtener antecedentes médicos
+router.get(
+  '/me/antecedentes',
+  authenticate,
+  authorize('PACIENTE'),
+  antecedentesController.getAntecedentes
+);
+
+// Crear o actualizar antecedentes médicos
+router.put(
+  '/me/antecedentes',
+  authenticate,
+  authorize('PACIENTE'),
+  validate(antecedentesMedicosSchema),
+  antecedentesController.upsertAntecedentes
 );
 
 export default router;
