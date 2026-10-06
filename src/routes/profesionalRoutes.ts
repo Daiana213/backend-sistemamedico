@@ -5,7 +5,8 @@ import { requierePermisoGestionUsuarios } from '../middlewares/requierePermisoGe
 import { registrarProfesionalController } from '../controllers/profesionalController';
 import { registrarProfesionalSchema } from '../validations/profesionalValidation';
 import { authorize } from '../middlewares/authorize';
-import { obtenerMiAgenda } from '../controllers/profesionalAgendaController';
+import { configurarMiAgenda, obtenerMiAgenda } from '../controllers/profesionalAgendaController';
+import { configurarAgendaSchema } from '../validations/agendaValidation';
 
 const router = Router();
 
@@ -23,6 +24,15 @@ router.get(
   authenticate,
   authorize('PROFESIONAL'),
   obtenerMiAgenda
+);
+
+// HU19: Configurar agenda de cada profesional (Administrativo con permisos)
+router.put(
+  '/:id/agenda',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  validate(configurarAgendaSchema),
+  configurarMiAgenda
 );
 
 export default router;
