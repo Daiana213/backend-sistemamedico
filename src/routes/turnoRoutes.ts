@@ -21,4 +21,19 @@ router.get(
   turnoController.listar
 );
 
+// Cancelar un turno
+router.post(
+  '/:id/cancelar',
+  authenticate,
+  turnoController.cancelar
+);
+
+// Reprogramar un turno
+router.post(
+  '/:id/reprogramar',
+  authenticate,
+  // aquí se podría agregar un validate para fechaHora
+  turnoController.reprogramar
+);
+
 export default router;
