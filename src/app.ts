@@ -25,10 +25,19 @@ app.use(
   })
 );
 
-// CORS: solo el origen del frontend puede llamar a esta API
+// CORS: Permitir frontend local y en producción
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://frontend-sistemamedico.onrender.com'
+];
+
+if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     credentials: true,
   })
 );
