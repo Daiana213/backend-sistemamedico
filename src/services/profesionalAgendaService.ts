@@ -237,3 +237,105 @@ async function obtenerTurnosAfectados(idProfesional: number, nuevasAgendas: Conf
 
   return turnosAfectados;
 }
+
+export async function obtenerDisponibilidad(idProfesional: number, fecha: string) {
+  const { inicio, fin } = limitesDiaArgentina(fecha, 'fecha');
+  
+  // 1. Validar que la fecha sea futura o de hoy
+  const hoy = new Date();
+  // Se podría agregar validación estricta de fecha futura
+
+  // 2. Obtener la agenda del profesional para el día de la semana de "fecha"
+  // utcOffset para Argentina: -3 horas
+  const utcOffset = -3 * 60;
+  const fechaLocal = new Date(inicio.getTime() + utcOffset * 60000);
+  const diaSemana = fechaLocal.getUTCDay();
+
+  const agendas = await prisma.agendaProfesional.findMany({
+    where: {
+      idProfesional,
+      diaSemana,
+      estado: 'ACTIVO'
+    }
+  });
+
+  if (agendas.length === 0) {
+    return {
+      idProfesional,
+      fecha,
+      turnosDisponibles: []
+    };
+  }
+
+  // 3. Generar todos los slots posibles basados en las franjas de la agenda
+  const slotsPosibles: string[] = [];
+  
+  agendas.forEach(agenda => {
+    let horaActualStr = agenda.horaInicio;
+    
+    while (horaActualStr < agenda.horaFin) {
+      slotsPosibles.push(horaActualStr);
+      
+      // Sumar la duración
+      const [h, m] = horaActualStr.split(':').map(Number);
+      const minutosTotales = h * 60 + m + agenda.duracionTurnoMinutos;
+      
+      const nextH = Math.floor(minutosTotales / 60).toString().padStart(2, '0');
+      const nextM = (minutosTotales % 60).toString().padStart(2, '0');
+      horaActualStr = `${nextH}:${nextM}`;
+      
+      // Si el siguiente turno termina después de la horaFin, se descarta y sale del loop
+      if (horaActualStr > agenda.horaFin) {
+        break;
+      }
+    }
+  });
+
+  // Ordenar slots
+  slotsPosibles.sort();
+
+  // 4. Obtener turnos ya ocupados en ese día
+  const turnosOcupados = await prisma.turno.findMany({
+    where: {
+      idProfesional,
+      fechaHora: {
+        gte: inicio,
+        lte: fin
+      },
+      estado: {
+        in: ['SOLICITADO', 'CONFIRMADO']
+      }
+    }
+  });
+
+  // Mapear turnos ocupados a formato "HH:mm" en hora local (Argentina)
+  const horasOcupadas = turnosOcupados.map(turno => {
+    const fechaTurno = new Date(turno.fechaHora);
+    const fechaTurnoLocal = new Date(fechaTurno.getTime() + utcOffset * 60000);
+    const h = fechaTurnoLocal.getUTCHours().toString().padStart(2, '0');
+    const m = fechaTurnoLocal.getUTCMinutes().toString().padStart(2, '0');
+    return `${h}:${m}`;
+  });
+
+  // 5. Filtrar los slots posibles quitando los ocupados
+  const turnosDisponibles = slotsPosibles.filter(slot => !horasOcupadas.includes(slot));
+
+  // Filtrar turnos pasados si la fecha es hoy
+  const esHoy = fechaLocal.toISOString().split('T')[0] === new Date(hoy.getTime() + utcOffset * 60000).toISOString().split('T')[0];
+  let turnosFinales = turnosDisponibles;
+  
+  if (esHoy) {
+    const ahoraLocal = new Date(hoy.getTime() + utcOffset * 60000);
+    const hActual = ahoraLocal.getUTCHours().toString().padStart(2, '0');
+    const mActual = ahoraLocal.getUTCMinutes().toString().padStart(2, '0');
+    const horaActualStr = `${hActual}:${mActual}`;
+    
+    turnosFinales = turnosDisponibles.filter(slot => slot >= horaActualStr);
+  }
+
+  return {
+    idProfesional,
+    fecha,
+    turnosDisponibles: turnosFinales
+  };
+}

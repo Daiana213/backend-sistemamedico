@@ -5,7 +5,7 @@ import { requierePermisoGestionUsuarios } from '../middlewares/requierePermisoGe
 import { registrarProfesionalController } from '../controllers/profesionalController';
 import { registrarProfesionalSchema } from '../validations/profesionalValidation';
 import { authorize } from '../middlewares/authorize';
-import { configurarMiAgenda, obtenerMiAgenda } from '../controllers/profesionalAgendaController';
+import { configurarMiAgenda, obtenerMiAgenda, getDisponibilidad } from '../controllers/profesionalAgendaController';
 import { configurarAgendaSchema } from '../validations/agendaValidation';
 
 const router = Router();
@@ -33,6 +33,13 @@ router.put(
   requierePermisoGestionUsuarios,
   validate(configurarAgendaSchema),
   configurarMiAgenda
+);
+
+// Obtener disponibilidad de un profesional (para los pacientes o administrativos)
+router.get(
+  '/:id/disponibilidad',
+  authenticate,
+  getDisponibilidad
 );
 
 export default router;

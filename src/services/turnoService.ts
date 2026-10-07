@@ -91,6 +91,24 @@ export async function crearTurno(
     );
   }
 
+  // 4.5. Escenario 2: Verificar que el paciente no tenga ya dos turnos activos con este profesional
+  const turnosActivos = await prisma.turno.count({
+    where: {
+      idPaciente,
+      idProfesional: datos.idProfesional,
+      estado: {
+        in: ['SOLICITADO', 'CONFIRMADO'],
+      },
+    },
+  });
+
+  if (turnosActivos >= 2) {
+    throw new AppError(
+      'Ya tenés dos turnos activos con este profesional.',
+      409
+    );
+  }
+
   // 5. Crear el nuevo turno. El índice único parcial
   //    uq_turno_profesional_fechahora_activo garantiza la unicidad ante solicitudes
   //    simultáneas; la violación (P2002) se traduce a 409.
@@ -253,4 +271,175 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
     orderBy: { fechaHora: 'desc' },
     take: 100,
   });
+}
+
+/**
+ * Cancelar un turno.
+ * Requiere que la fecha del turno supere el límite mínimo de anticipación (24 horas).
+ */
+export async function cancelarTurno(idTurno: number, usuarioAutenticado: AccessTokenPayload) {
+  const turno = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: { paciente: true },
+  });
+
+  if (!turno) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  // Validar permisos
+  if (usuarioAutenticado.rolActivo === 'PACIENTE') {
+    const paciente = await prisma.paciente.findUnique({
+      where: { idUsuario: usuarioAutenticado.idUsuario },
+    });
+    if (!paciente || paciente.idPaciente !== turno.idPaciente) {
+      throw new AppError('No tiene permisos para cancelar este turno.', 403);
+    }
+  }
+
+  // Validar estados permitidos
+  if (!['SOLICITADO', 'CONFIRMADO'].includes(turno.estado)) {
+    throw new AppError(`No se puede cancelar un turno en estado ${turno.estado}.`, 400);
+  }
+
+  // Validar límite mínimo de anticipación (24 horas)
+  const ahora = new Date();
+  const horasDiferencia = (turno.fechaHora.getTime() - ahora.getTime()) / (1000 * 60 * 60);
+
+  if (horasDiferencia < 24) {
+    throw new AppError('El plazo para realizar cambios ha vencido (mínimo 24 horas de anticipación).', 400);
+  }
+
+  const turnoCancelado = await prisma.turno.update({
+    where: { idTurno },
+    data: {
+      estado: 'CANCELADO',
+      motivoCancelacion: 'Cancelado por el paciente desde panel web',
+    },
+  });
+
+  // Aquí se podría registrar en auditoría también
+  await prisma.auditoria.create({
+    data: {
+      idUsuario: usuarioAutenticado.idUsuario,
+      fechaHora: new Date(),
+      accion: 'CANCELAR_TURNO',
+      tablaAfectada: 'turno',
+      idRegistroAfectado: idTurno,
+      descripcion: 'Turno cancelado por el paciente.',
+    },
+  });
+
+  return {
+    mensaje: 'Tu turno fue cancelado correctamente.',
+    turno: turnoCancelado,
+  };
+}
+
+/**
+ * Reprogramar un turno.
+ * Requiere que la fecha del turno supere el límite mínimo de anticipación (24 horas).
+ */
+export async function reprogramarTurno(
+  idTurno: number,
+  nuevaFechaHora: Date,
+  usuarioAutenticado: AccessTokenPayload
+) {
+  const turnoOriginal = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: { 
+      paciente: {
+        include: {
+          usuario: true,
+          plan: {
+            include: {
+              obraSocial: true,
+            },
+          },
+        },
+      }
+    },
+  });
+
+  if (!turnoOriginal) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  // 1. VALIDACIÓN CRÍTICA: Verificar si el paciente tiene email, sexo y obra social/plan.
+  verificarPerfilCompletoParaTurno(turnoOriginal.paciente);
+
+  // Validar permisos
+  if (usuarioAutenticado.rolActivo === 'PACIENTE') {
+    const paciente = await prisma.paciente.findUnique({
+      where: { idUsuario: usuarioAutenticado.idUsuario },
+    });
+    if (!paciente || paciente.idPaciente !== turnoOriginal.idPaciente) {
+      throw new AppError('No tiene permisos para reprogramar este turno.', 403);
+    }
+  }
+
+  // Validar estados permitidos
+  if (!['SOLICITADO', 'CONFIRMADO'].includes(turnoOriginal.estado)) {
+    throw new AppError(`No se puede reprogramar un turno en estado ${turnoOriginal.estado}.`, 400);
+  }
+
+  // Validar límite mínimo de anticipación (24 horas) para el turno original
+  const ahora = new Date();
+  const horasDiferencia = (turnoOriginal.fechaHora.getTime() - ahora.getTime()) / (1000 * 60 * 60);
+
+  if (horasDiferencia < 24) {
+    throw new AppError('El plazo para realizar cambios ha vencido (mínimo 24 horas de anticipación).', 400);
+  }
+
+  // Verificar si hay turno superpuesto en la nueva fecha (opcionalmente ya lo hace la DB con índice)
+  const turnoExistente = await prisma.turno.findFirst({
+    where: {
+      idProfesional: turnoOriginal.idProfesional,
+      fechaHora: nuevaFechaHora,
+      estado: {
+        in: ['SOLICITADO', 'CONFIRMADO'],
+      },
+    },
+  });
+
+  if (turnoExistente) {
+    throw new AppError('El profesional ya cuenta con un turno reservado para esa nueva fecha y hora.', 409);
+  }
+
+  // Transacción para reprogramar: marcar original como REPROGRAMADO y crear nuevo SOLICITADO
+  let nuevoTurno;
+  await prisma.$transaction(async (tx) => {
+    await tx.turno.update({
+      where: { idTurno },
+      data: {
+        estado: 'REPROGRAMADO',
+      },
+    });
+
+    nuevoTurno = await tx.turno.create({
+      data: {
+        idPaciente: turnoOriginal.idPaciente,
+        idProfesional: turnoOriginal.idProfesional,
+        fechaHora: nuevaFechaHora,
+        estado: 'SOLICITADO',
+      },
+    });
+
+    // Auditoría
+    await tx.auditoria.create({
+      data: {
+        idUsuario: usuarioAutenticado.idUsuario,
+        fechaHora: new Date(),
+        accion: 'REPROGRAMAR_TURNO',
+        tablaAfectada: 'turno',
+        idRegistroAfectado: nuevoTurno.idTurno,
+        descripcion: `Turno reprogramado del ${turnoOriginal.fechaHora.toISOString()} al ${nuevaFechaHora.toISOString()}`,
+      },
+    });
+  });
+
+  return {
+    mensaje: 'Tu turno fue reprogramado correctamente.',
+    turno: nuevoTurno,
+  };
 }
