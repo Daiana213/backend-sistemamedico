@@ -177,3 +177,48 @@ async function agregarRolProfesional(
     mensaje: 'Rol profesional agregado correctamente al usuario existente.',
   };
 }
+
+export async function listarProfesionales(idEspecialidad?: number) {
+  const whereClause: any = {
+    estado: 'ACTIVO',
+  };
+
+  if (idEspecialidad) {
+    whereClause.especialidades = {
+      some: {
+        idEspecialidad,
+        estado: 'ACTIVO',
+      },
+    };
+  }
+
+  const profesionales = await prisma.profesional.findMany({
+    where: whereClause,
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+        },
+      },
+      especialidades: {
+        where: { estado: 'ACTIVO' },
+        include: {
+          especialidad: true,
+        },
+      },
+    },
+    orderBy: {
+      usuario: {
+        apellido: 'asc',
+      },
+    },
+  });
+
+  return profesionales.map((p) => ({
+    idProfesional: p.idProfesional,
+    nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
+    matricula: p.matricula,
+    especialidades: p.especialidades.map((e) => e.especialidad.nombre),
+  }));
+}
