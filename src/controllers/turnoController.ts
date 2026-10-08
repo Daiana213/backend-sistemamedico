@@ -25,7 +25,7 @@ export const cancelar = asyncHandler(async (req: Request, res: Response) => {
   if (!req.usuario) {
     throw new AppError('No autorizado.', 401);
   }
-  const idTurno = parseInt(req.params.id, 10);
+  const idTurno = parseInt(req.params.id as string, 10);
   if (isNaN(idTurno)) {
     throw new AppError('ID de turno inválido', 400);
   }
@@ -38,7 +38,7 @@ export const reprogramar = asyncHandler(async (req: Request, res: Response) => {
   if (!req.usuario) {
     throw new AppError('No autorizado.', 401);
   }
-  const idTurno = parseInt(req.params.id, 10);
+  const idTurno = parseInt(req.params.id as string, 10);
   if (isNaN(idTurno)) {
     throw new AppError('ID de turno inválido', 400);
   }
