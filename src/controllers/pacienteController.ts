@@ -32,3 +32,14 @@ export const actualizarPerfil = asyncHandler(async (req: Request, res: Response)
   const resultado = await pacienteService.actualizarPerfilPaciente(req.usuario.idUsuario, req.body);
   res.status(200).json(resultado);
 });
+
+export const buscarPorDni = asyncHandler(async (req: Request, res: Response) => {
+  const { dni } = req.query;
+
+  if (!dni || typeof dni !== 'string') {
+    throw new AppError('Debe proporcionar el DNI del paciente a buscar.', 400);
+  }
+
+  const resultado = await pacienteService.buscarPacientePorDni(dni);
+  res.status(200).json(resultado);
+});

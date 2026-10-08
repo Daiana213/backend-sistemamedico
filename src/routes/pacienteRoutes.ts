@@ -29,6 +29,14 @@ router.get(
   pacienteController.obtenerPerfil
 );
 
+// Buscar paciente por DNI (Profesionales / Administrativos)
+router.get(
+  '/buscar',
+  authenticate,
+  authorize('PROFESIONAL', 'ADMINISTRATIVO'),
+  pacienteController.buscarPorDni
+);
+
 // Actualizar datos del perfil del paciente (para completar email, sexo, obra social/plan)
 router.put(
   '/perfil',
