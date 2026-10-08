@@ -117,6 +117,10 @@ export async function login({ dni, password }: LoginInput) {
     throw new AppError('Superaste el máximo de intentos. Intentá nuevamente en 30 minutos.', 403);
   }
 
+  if (usuario.bloqueadoHasta && usuario.bloqueadoHasta <= new Date()) {
+    usuario.intentosFallidos = 0;
+  }
+
   const passwordValida = await comparePassword(password, usuario.passwordHash);
   if (!passwordValida) {
     const intentos = usuario.intentosFallidos + 1;
@@ -130,7 +134,7 @@ export async function login({ dni, password }: LoginInput) {
     } else {
       await prisma.usuario.update({
         where: { idUsuario: usuario.idUsuario },
-        data: { intentosFallidos: intentos },
+        data: { intentosFallidos: intentos, bloqueadoHasta: null },
       });
       throw new AppError(MENSAJE_CREDENCIALES_INVALIDAS, 401);
     }
