@@ -478,3 +478,46 @@ export function verificarPerfilCompletoParaTurno(paciente: {
     );
   }
 }
+
+export async function buscarPacientePorDni(dni: string) {
+  const paciente = await prisma.paciente.findFirst({
+    where: {
+      usuario: { dni },
+    },
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+          dni: true,
+          telefono: true,
+          email: true,
+        },
+      },
+      plan: {
+        include: {
+          obraSocial: true,
+        },
+      },
+    },
+  });
+
+  if (!paciente) {
+    throw new AppError('No se encontró ningún paciente con el DNI proporcionado.', 404);
+  }
+
+  const perfilCompleto = Boolean(paciente.usuario.email && paciente.sexo && paciente.idPlan);
+
+  return {
+    idPaciente: paciente.idPaciente,
+    nombreCompleto: `${paciente.usuario.nombre} ${paciente.usuario.apellido}`,
+    dni: paciente.usuario.dni,
+    telefono: paciente.usuario.telefono,
+    email: paciente.usuario.email,
+    planObraSocial: paciente.plan
+      ? `${paciente.plan.obraSocial.nombre} - ${paciente.plan.nombre}`
+      : 'Particular',
+    estado: paciente.estado,
+    perfilCompleto,
+  };
+}

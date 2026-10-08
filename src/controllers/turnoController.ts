@@ -12,6 +12,29 @@ export const crear = asyncHandler(async (req: Request, res: Response) => {
   res.status(201).json(resultado);
 });
 
+export const crearTurnoPorProfesional = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.usuario) {
+    throw new AppError('No autorizado.', 401);
+  }
+
+  const { idPaciente, fechaHora } = req.body;
+
+  if (!idPaciente || !fechaHora) {
+    throw new AppError('Debe especificar idPaciente y fechaHora.', 400);
+  }
+
+  const idPacienteNumber = parseInt(idPaciente, 10);
+  if (isNaN(idPacienteNumber)) {
+    throw new AppError('ID de paciente inválido', 400);
+  }
+
+  const resultado = await turnoService.crearTurnoPorProfesional(
+    { idPaciente: idPacienteNumber, fechaHora },
+    req.usuario
+  );
+  res.status(201).json(resultado);
+});
+
 export const listar = asyncHandler(async (req: Request, res: Response) => {
   if (!req.usuario) {
     throw new AppError('No autorizado. Debe iniciar sesión para ver los turnos.', 401);

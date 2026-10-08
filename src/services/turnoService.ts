@@ -169,6 +169,39 @@ export async function crearTurno(
 }
 
 /**
+ * Crea un turno por parte del profesional autenticado, sin requerir que mande idProfesional
+ */
+export async function crearTurnoPorProfesional(
+  datos: { idPaciente: number; fechaHora: string | Date },
+  usuarioAutenticado: AccessTokenPayload
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idUsuario: usuarioAutenticado.idUsuario },
+  });
+
+  if (!profesional) {
+    throw new AppError('Perfil de profesional no encontrado.', 404);
+  }
+
+  const fechaHora = new Date(datos.fechaHora);
+  if (isNaN(fechaHora.getTime())) {
+    throw new AppError('Formato de fechaHora inválido', 400);
+  }
+
+  if (fechaHora.getTime() <= Date.now()) {
+    throw new AppError('La fecha y hora del turno debe ser posterior a la fecha y hora actual.', 400);
+  }
+
+  const crearTurnoDatos: CrearTurnoInput = {
+    idProfesional: profesional.idProfesional,
+    fechaHora,
+    idPaciente: datos.idPaciente,
+  };
+
+  return crearTurno(crearTurnoDatos, usuarioAutenticado);
+}
+
+/**
  * Listar turnos según el rol del usuario autenticado.
  */
 export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {

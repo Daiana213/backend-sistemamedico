@@ -339,3 +339,18 @@ export async function obtenerDisponibilidad(idProfesional: number, fecha: string
     turnosDisponibles: turnosFinales
   };
 }
+
+export async function obtenerMiDisponibilidad(idUsuario: number, fecha: string) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idUsuario },
+  });
+
+  if (!profesional) {
+    throw new AppError('Perfil de profesional no encontrado.', 404);
+  }
+
+  const resultado = await obtenerDisponibilidad(profesional.idProfesional, fecha);
+  
+  // Optionally hide idProfesional if not needed, but maintaining the same interface is fine
+  return resultado;
+}
