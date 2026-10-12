@@ -52,10 +52,7 @@ export const requestPhoneCode = asyncHandler(async (req: Request, res: Response)
   const cleanTelefono = String(telefono).trim();
   // En cuenta de prueba / prototipo Twilio Sandbox, se utiliza el código preestablecido que Twilio envía
   const codigo = CODIGO_TWILIO_SANDBOX;
-  console.log('===== VERIFICACIÓN WHATSAPP (PROTOTIPO) =====');
-  console.log(`Teléfono: ${cleanTelefono}`);
-  console.log(`Código Twilio preestablecido guardado en DB: ${codigo}`);
-  console.log('============================================');
+
   
   const fechaExpiracion = new Date();
   fechaExpiracion.setMinutes(fechaExpiracion.getMinutes() + 10);

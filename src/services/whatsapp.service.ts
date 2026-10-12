@@ -28,7 +28,6 @@ export const sendValidationCode = async (telefono: string, codigo: string) => {
 
     const contentSid = process.env.TWILIO_CONTENT_SID || 'HX25161c213d71bb75e073ead06f38fbbd';
 
-    console.log(`[WhatsApp Service] Enviando mensaje a ${formattedTo} usando plantilla ${contentSid}...`);
 
     const message = await twilioClient.messages.create({
       contentSid,
@@ -37,7 +36,6 @@ export const sendValidationCode = async (telefono: string, codigo: string) => {
       to: formattedTo,
     });
 
-    console.log(`[WhatsApp Service] Mensaje enviado correctamente. SID: ${message.sid}`);
     return message;
   } catch (error: any) {
     console.error('Error enviando WhatsApp:', error);
