@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
 import * as authService from '../services/authService';
+import { prisma } from '../config/prisma';
+import { sendValidationCode } from '../services/whatsapp.service';
 
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const resultado = await authService.login(req.body);
@@ -38,6 +40,8 @@ export const cambiarPassword = asyncHandler(async (req: Request, res: Response) 
   res.status(200).json(resultado);
 });
 
+const CODIGO_TWILIO_SANDBOX = process.env.TWILIO_PRESET_CODE || '482913';
+
 export const requestPhoneCode = asyncHandler(async (req: Request, res: Response) => {
   const { telefono } = req.body;
   if (!telefono) {
@@ -45,49 +49,55 @@ export const requestPhoneCode = asyncHandler(async (req: Request, res: Response)
     return;
   }
   
-  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
-  console.log('===== ATENCIÓN =====');
-  console.log(`Código generado y guardado en DB: ${codigo}`);
-  console.log('====================');
+  const cleanTelefono = String(telefono).trim();
+  // En cuenta de prueba / prototipo Twilio Sandbox, se utiliza el código preestablecido que Twilio envía
+  const codigo = CODIGO_TWILIO_SANDBOX;
+  console.log('===== VERIFICACIÓN WHATSAPP (PROTOTIPO) =====');
+  console.log(`Teléfono: ${cleanTelefono}`);
+  console.log(`Código Twilio preestablecido guardado en DB: ${codigo}`);
+  console.log('============================================');
   
   const fechaExpiracion = new Date();
-  fechaExpiracion.setMinutes(fechaExpiracion.getMinutes() + 5);
-
-  const { prisma } = require('../config/prisma');
+  fechaExpiracion.setMinutes(fechaExpiracion.getMinutes() + 10);
 
   await prisma.codigoVerificacion.create({
     data: {
-      telefono,
+      telefono: cleanTelefono,
       codigo,
-      fechaExpiracion
-    }
+      fechaExpiracion,
+    },
   });
 
-  const { sendValidationCode } = require('../services/whatsapp.service');
-  await sendValidationCode(telefono, codigo);
+  await sendValidationCode(cleanTelefono, codigo);
 
   res.status(200).json({ message: 'Código enviado exitosamente' });
 });
 
 export const verifyPhoneCode = asyncHandler(async (req: Request, res: Response) => {
-  const { telefono } = req.body;
-  const codigo = String(req.body.codigo); // Aseguramos que sea un string por si desde Postman lo mandan como número
+  const { telefono, codigo } = req.body;
   
-  if (!telefono || !req.body.codigo) {
+  if (!telefono || !codigo) {
     res.status(400).json({ message: 'Teléfono y código son requeridos' });
     return;
   }
 
-  const { prisma } = require('../config/prisma');
+  const cleanTelefono = String(telefono).trim();
+  const codigoIngresado = String(codigo).trim();
+
+  // Permitir match tanto con o sin el prefijo '+'
+  const posiblesTelefonos = [
+    cleanTelefono,
+    cleanTelefono.startsWith('+') ? cleanTelefono.slice(1) : `+${cleanTelefono}`,
+  ];
 
   const registro = await prisma.codigoVerificacion.findFirst({
     where: {
-      telefono,
-      utilizado: false
+      telefono: { in: posiblesTelefonos },
+      utilizado: false,
     },
     orderBy: {
-      idCodigo: 'desc' // Mejor ordenar por ID autoincremental para asegurar que siempre sea el último exacto
-    }
+      idCodigo: 'desc',
+    },
   });
 
   if (!registro) {
@@ -95,7 +105,7 @@ export const verifyPhoneCode = asyncHandler(async (req: Request, res: Response) 
     return;
   }
 
-  if (registro.codigo !== codigo) {
+  if (registro.codigo !== codigoIngresado) {
     res.status(400).json({ message: 'Código inválido' });
     return;
   }
@@ -107,8 +117,9 @@ export const verifyPhoneCode = asyncHandler(async (req: Request, res: Response) 
 
   await prisma.codigoVerificacion.update({
     where: { idCodigo: registro.idCodigo },
-    data: { utilizado: true }
+    data: { utilizado: true },
   });
 
   res.status(200).json({ message: 'Teléfono verificado exitosamente' });
-});
+});
+
