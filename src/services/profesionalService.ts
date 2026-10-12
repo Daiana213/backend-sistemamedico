@@ -51,8 +51,7 @@ async function crearUsuarioProfesional(
   idAdministrativo: number,
   ip?: string
 ) {
-  const passwordGenerica = generarPasswordGenerica();
-  const passwordHash = await hashPassword(passwordGenerica);
+  const passwordHash = await hashPassword(datos.password);
 
   await prisma.$transaction(async (tx) => {
     const nuevoUsuario = await tx.usuario.create({
@@ -111,7 +110,6 @@ async function crearUsuarioProfesional(
 
   return {
     mensaje: 'Profesional registrado correctamente en el sistema.',
-    passwordGenerica,
   };
 }
 
@@ -124,8 +122,7 @@ async function agregarRolProfesional(
   idAdministrativo: number,
   ip?: string
 ) {
-  const passwordGenerica = generarPasswordGenerica();
-  const passwordHash = await hashPassword(passwordGenerica);
+  const passwordHash = await hashPassword(datos.password);
 
   await prisma.$transaction(async (tx) => {
     // Actualizamos el passwordHash para que use la nueva contraseña genérica
@@ -178,6 +175,50 @@ async function agregarRolProfesional(
 
   return {
     mensaje: 'Rol profesional agregado correctamente al usuario existente.',
-    passwordGenerica,
   };
+}
+
+export async function listarProfesionales(idEspecialidad?: number) {
+  const whereClause: any = {
+    estado: 'ACTIVO',
+  };
+
+  if (idEspecialidad) {
+    whereClause.especialidades = {
+      some: {
+        idEspecialidad,
+        estado: 'ACTIVO',
+      },
+    };
+  }
+
+  const profesionales = await prisma.profesional.findMany({
+    where: whereClause,
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+        },
+      },
+      especialidades: {
+        where: { estado: 'ACTIVO' },
+        include: {
+          especialidad: true,
+        },
+      },
+    },
+    orderBy: {
+      usuario: {
+        apellido: 'asc',
+      },
+    },
+  });
+
+  return profesionales.map((p) => ({
+    idProfesional: p.idProfesional,
+    nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
+    matricula: p.matricula,
+    especialidades: p.especialidades.map((e) => e.especialidad.nombre),
+  }));
 }

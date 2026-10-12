@@ -61,8 +61,8 @@ export const reenviarDoc = asyncHandler(async (req: Request, res: Response) => {
     idPaciente,
     idUsuarioAutenticado,
     {
-      nombreArchivo: req.file.filename,
-      rutaArchivo: `/api/documentos/${req.file.filename}`,
+      nombreArchivo: req.file.originalname || req.file.filename,
+      rutaArchivo: req.file.path || `/api/documentos/${req.file.filename}`,
     },
     tipoDocumento.trim()
   );

@@ -2,8 +2,12 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import { validate } from '../middlewares/validate';
 import { requierePermisoGestionUsuarios } from '../middlewares/requierePermisoGestionUsuarios';
-import { registrarProfesionalController } from '../controllers/profesionalController';
+import { registrarProfesionalController, listarProfesionalesController } from '../controllers/profesionalController';
 import { registrarProfesionalSchema } from '../validations/profesionalValidation';
+import { authorize } from '../middlewares/authorize';
+import { configurarMiAgenda, obtenerMiAgenda, getDisponibilidad, getMiDisponibilidad } from '../controllers/profesionalAgendaController';
+import { crearTurnoPorProfesional } from '../controllers/turnoController';
+import { configurarAgendaSchema } from '../validations/agendaValidation';
 
 const router = Router();
 
@@ -13,6 +17,53 @@ router.post(
   requierePermisoGestionUsuarios,
   validate(registrarProfesionalSchema),
   registrarProfesionalController
+);
+
+// HU16: Obtener la agenda propia del profesional autenticado
+router.get(
+  '/me/turnos',
+  authenticate,
+  authorize('PROFESIONAL'),
+  obtenerMiAgenda
+);
+
+// HU19: Configurar agenda de cada profesional (Administrativo con permisos)
+router.put(
+  '/:id/agenda',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  validate(configurarAgendaSchema),
+  configurarMiAgenda
+);
+
+// Obtener disponibilidad del profesional autenticado
+router.get(
+  '/me/disponibilidad',
+  authenticate,
+  authorize('PROFESIONAL'),
+  getMiDisponibilidad
+);
+
+// Crear turno por el profesional
+router.post(
+  '/me/turnos',
+  authenticate,
+  authorize('PROFESIONAL'),
+  crearTurnoPorProfesional
+);
+
+// Obtener disponibilidad de un profesional (para los pacientes o administrativos)
+router.get(
+  '/:id/disponibilidad',
+  authenticate,
+  getDisponibilidad
+);
+
+// Listar profesionales (opcionalmente filtrados por especialidad con ?especialidad=id)
+router.get(
+  '/',
+  authenticate,
+  listarProfesionalesController
 );
 
 export default router;

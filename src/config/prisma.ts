@@ -7,9 +7,17 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
+const isRemoteDb =
+  process.env.DATABASE_URL?.includes('render.com') ||
+  process.env.DATABASE_URL?.includes('neon.tech') ||
+  process.env.DATABASE_URL?.includes('supabase.co') ||
+  process.env.DATABASE_URL?.includes('vercel-storage.com') ||
+  process.env.DATABASE_URL?.includes('sslmode=require') ||
+  process.env.NODE_ENV === 'production';
+
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
-  //ssl: { rejectUnauthorized: false } Se usa para el seed
+  ...(isRemoteDb ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 const adapter = new PrismaPg(pool);
 
@@ -18,6 +26,4 @@ export const prisma = global.prisma ?? new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  global.prisma = prisma;
-}
+global.prisma = prisma;
