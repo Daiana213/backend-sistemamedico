@@ -21,5 +21,7 @@ router.post('/logout', validate(logoutSchema), authController.logout);
 router.post('/solicitar-recuperacion', validate(solicitarRecuperacionSchema), authController.solicitarRecuperacionPassword);
 router.post('/restablecer-password', validate(restablecerPasswordSchema), authController.restablecerPassword);
 router.post('/cambiar-password', authenticate, validate(cambiarPasswordSchema), authController.cambiarPassword);
+router.post('/request-phone-code', authController.requestPhoneCode);
+router.post('/verify-phone-code', authController.verifyPhoneCode);
 
 export default router;

@@ -309,3 +309,14 @@ model AntecedentesMedicos {
 
   @@map("antecedentes_medicos")
 }
+
+model CodigoVerificacion {
+  idCodigo        Int      @id @default(autoincrement()) @map("id_codigo")
+  telefono        String   @db.VarChar(30)
+  codigo          String   @db.VarChar(6)
+  fechaCreacion   DateTime @default(now()) @map("fecha_creacion") @db.Timestamp(6)
+  fechaExpiracion DateTime @map("fecha_expiracion") @db.Timestamp(6)
+  utilizado       Boolean  @default(false)
+
+  @@map("codigo_verificacion")
+}
