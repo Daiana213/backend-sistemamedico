@@ -9,6 +9,9 @@ declare global {
 
 const isRemoteDb =
   process.env.DATABASE_URL?.includes('render.com') ||
+  process.env.DATABASE_URL?.includes('neon.tech') ||
+  process.env.DATABASE_URL?.includes('supabase.co') ||
+  process.env.DATABASE_URL?.includes('vercel-storage.com') ||
   process.env.DATABASE_URL?.includes('sslmode=require') ||
   process.env.NODE_ENV === 'production';
 
@@ -23,6 +26,4 @@ export const prisma = global.prisma ?? new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  global.prisma = prisma;
-}
+global.prisma = prisma;

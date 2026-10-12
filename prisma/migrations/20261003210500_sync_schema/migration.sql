@@ -1,5 +1,5 @@
 -- DropTable
-DROP TABLE "codigo_verificacion";
+DROP TABLE IF EXISTS "codigo_verificacion";
 
 -- CreateIndex
 CREATE INDEX "idx_turno_profesional_fechahora" ON "turno"("id_profesional", "fecha_hora");

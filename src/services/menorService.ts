@@ -1,5 +1,9 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
+import {
+  enviarNotificacionMenorAprobado,
+  enviarNotificacionMenorRechazado,
+} from './email.service';
 
 // ─── Escenario 1: Listado de menores pendientes ───────────────────────────────
 
@@ -76,9 +80,21 @@ export async function aprobarRegistroMenor(idPaciente: number, idAdministrativo:
   const paciente = await prisma.paciente.findUnique({
     where: { idPaciente },
     include: {
+      usuario: {
+        select: { nombre: true, apellido: true },
+      },
       responsables: {
         where: { estado: 'ACTIVO' },
-        include: { documentos: { orderBy: { fechaCarga: 'desc' }, take: 1 } },
+        include: {
+          responsable: {
+            include: {
+              usuario: {
+                select: { nombre: true, apellido: true, email: true },
+              },
+            },
+          },
+          documentos: { orderBy: { fechaCarga: 'desc' }, take: 1 },
+        },
       },
     },
   });
@@ -139,8 +155,18 @@ export async function aprobarRegistroMenor(idPaciente: number, idAdministrativo:
     });
   });
 
-  // Notificación (pendiente nodemailer)
-  console.log(`[NOTIFICACION] Cuenta del menor idPaciente=${idPaciente} activada. Notificar al adulto responsable.`);
+  const responsableUsuario = vinculo?.responsable?.usuario;
+  if (responsableUsuario?.email) {
+    try {
+      await enviarNotificacionMenorAprobado({
+        emailResponsable: responsableUsuario.email,
+        nombreResponsable: `${responsableUsuario.nombre} ${responsableUsuario.apellido}`,
+        nombreMenor: `${paciente.usuario.nombre} ${paciente.usuario.apellido}`,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de aprobación de menor:', error);
+    }
+  }
 
   return { mensaje: 'Registro aprobado correctamente. La cuenta del menor ha sido activada.' };
 }
@@ -156,9 +182,21 @@ export async function rechazarRegistroMenor(
   const paciente = await prisma.paciente.findUnique({
     where: { idPaciente },
     include: {
+      usuario: {
+        select: { nombre: true, apellido: true },
+      },
       responsables: {
         where: { estado: 'ACTIVO' },
-        include: { documentos: { orderBy: { fechaCarga: 'desc' }, take: 1 } },
+        include: {
+          responsable: {
+            include: {
+              usuario: {
+                select: { nombre: true, apellido: true, email: true },
+              },
+            },
+          },
+          documentos: { orderBy: { fechaCarga: 'desc' }, take: 1 },
+        },
       },
     },
   });
@@ -223,8 +261,19 @@ export async function rechazarRegistroMenor(
     });
   });
 
-  // Notificación (pendiente nodemailer)
-  console.log(`[NOTIFICACION] Registro idPaciente=${idPaciente} rechazado. Motivo: ${motivo}. Notificar al adulto responsable.`);
+  const responsableUsuario = vinculo?.responsable?.usuario;
+  if (responsableUsuario?.email) {
+    try {
+      await enviarNotificacionMenorRechazado({
+        emailResponsable: responsableUsuario.email,
+        nombreResponsable: `${responsableUsuario.nombre} ${responsableUsuario.apellido}`,
+        nombreMenor: `${paciente.usuario.nombre} ${paciente.usuario.apellido}`,
+        motivo,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de rechazo de menor:', error);
+    }
+  }
 
   return { mensaje: 'Registro rechazado. Se notificó al adulto responsable con el motivo indicado.' };
 }

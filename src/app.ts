@@ -25,10 +25,11 @@ app.use(
   })
 );
 
-// CORS: Permitir frontend local y en producción
-const allowedOrigins = [
+// CORS: Permitir frontend local y en producción (Vercel / Render)
+const allowedOrigins: (string | RegExp)[] = [
   'http://localhost:5173',
-  'https://frontend-sistemamedico.onrender.com'
+  'https://frontend-sistemamedico.onrender.com',
+  /^https:\/\/.*\.vercel\.app$/,
 ];
 
 if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {

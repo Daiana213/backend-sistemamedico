@@ -10,6 +10,7 @@ import {
   RolActivo,
 } from '../utils/jwt';
 import { AppError } from '../utils/AppError';
+import { enviarRecuperacionPasswordEmail } from './email.service';
 import {
   LoginInput,
   SeleccionarRolInput,
@@ -260,9 +261,16 @@ export async function solicitarRecuperacionPassword({ dni, email }: SolicitarRec
     where: { dni },
   });
 
+  if (usuario && !usuario.email) {
+    throw new AppError(
+      'No tenés un correo registrado. Contactate con el centro de salud para restablecer tu contraseña.',
+      400
+    );
+  }
+
   // Seguridad: siempre devolvemos el mismo mensaje, aunque el usuario no exista
   // o el email no coincida, para evitar enumeración de usuarios.
-  if (!usuario || usuario.email.toLowerCase() !== email.toLowerCase()) {
+  if (!usuario || !usuario.email || usuario.email.toLowerCase() !== email.toLowerCase()) {
     return {
       mensaje: MENSAJE_RECUPERACION_ENVIADA,
     };
@@ -297,16 +305,22 @@ export async function solicitarRecuperacionPassword({ dni, email }: SolicitarRec
     },
   });
 
-  // TODO: En un entorno real, acá se enviaría el mail con el enlace.
-  // Por ahora, devolvemos el token en el response para que el frontend
-  // pueda simular el flujo completo.
   const enlaceRecuperacion = `/reset-password?token=${tokenPlano}`;
+  const frontendBaseUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const urlCompletaRecuperacion = `${frontendBaseUrl}${enlaceRecuperacion}`;
+
+  await enviarRecuperacionPasswordEmail(
+    usuario.email,
+    `${usuario.nombre} ${usuario.apellido}`,
+    urlCompletaRecuperacion
+  );
 
   return {
     mensaje: MENSAJE_RECUPERACION_ENVIADA,
-    // En producción NO se devuelve el token al cliente; es solo para facilitar el flujo de prueba.
-    _debugToken: tokenPlano,
-    _debugEnlace: enlaceRecuperacion,
+    ...(process.env.NODE_ENV !== 'production' && {
+      _debugToken: tokenPlano,
+      _debugEnlace: enlaceRecuperacion,
+    }),
   };
 }
 

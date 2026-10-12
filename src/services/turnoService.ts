@@ -4,6 +4,11 @@ import { AppError } from '../utils/AppError';
 import { AccessTokenPayload } from '../utils/jwt';
 import { CrearTurnoInput } from '../validations/turnoValidation';
 import { verificarPerfilCompletoParaTurno } from './pacienteService';
+import {
+  enviarNotificacionTurnoReservado,
+  enviarNotificacionTurnoReprogramado,
+  enviarNotificacionTurnoCancelado,
+} from './email.service';
 
 /**
  * Servicio para la creación y gestión de turnos médicos.
@@ -162,6 +167,20 @@ export async function crearTurno(
     throw error;
   }
 
+  const emailPaciente = nuevoTurno.paciente?.usuario?.email;
+  if (emailPaciente) {
+    try {
+      await enviarNotificacionTurnoReservado({
+        emailPaciente,
+        nombrePaciente: `${nuevoTurno.paciente.usuario.nombre} ${nuevoTurno.paciente.usuario.apellido}`,
+        nombreProfesional: `${nuevoTurno.profesional.usuario.nombre} ${nuevoTurno.profesional.usuario.apellido}`,
+        fechaHora: nuevoTurno.fechaHora,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de confirmación de turno:', error);
+    }
+  }
+
   return {
     mensaje: 'Turno solicitado exitosamente.',
     turno: nuevoTurno,
@@ -313,7 +332,10 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
 export async function cancelarTurno(idTurno: number, usuarioAutenticado: AccessTokenPayload) {
   const turno = await prisma.turno.findUnique({
     where: { idTurno },
-    include: { paciente: true },
+    include: {
+      paciente: { include: { usuario: true } },
+      profesional: { include: { usuario: true } },
+    },
   });
 
   if (!turno) {
@@ -363,6 +385,20 @@ export async function cancelarTurno(idTurno: number, usuarioAutenticado: AccessT
     },
   });
 
+  const emailPaciente = turno.paciente?.usuario?.email;
+  if (emailPaciente) {
+    try {
+      await enviarNotificacionTurnoCancelado({
+        emailPaciente,
+        nombrePaciente: `${turno.paciente.usuario.nombre} ${turno.paciente.usuario.apellido}`,
+        nombreProfesional: `${turno.profesional.usuario.nombre} ${turno.profesional.usuario.apellido}`,
+        fechaHora: turno.fechaHora,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de cancelación de turno:', error);
+    }
+  }
+
   return {
     mensaje: 'Tu turno fue cancelado correctamente.',
     turno: turnoCancelado,
@@ -390,7 +426,12 @@ export async function reprogramarTurno(
             },
           },
         },
-      }
+      },
+      profesional: {
+        include: {
+          usuario: true,
+        },
+      },
     },
   });
 
@@ -470,6 +511,21 @@ export async function reprogramarTurno(
       },
     });
   });
+
+  const emailPaciente = turnoOriginal.paciente?.usuario?.email;
+  if (emailPaciente) {
+    try {
+      await enviarNotificacionTurnoReprogramado({
+        emailPaciente,
+        nombrePaciente: `${turnoOriginal.paciente.usuario.nombre} ${turnoOriginal.paciente.usuario.apellido}`,
+        nombreProfesional: `${turnoOriginal.profesional.usuario.nombre} ${turnoOriginal.profesional.usuario.apellido}`,
+        fechaHoraAnterior: turnoOriginal.fechaHora,
+        nuevaFechaHora,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de reprogramación de turno:', error);
+    }
+  }
 
   return {
     mensaje: 'Tu turno fue reprogramado correctamente.',
