@@ -4,6 +4,7 @@ import { AppError } from '../utils/AppError';
 import { AccessTokenPayload } from '../utils/jwt';
 import { CrearTurnoInput } from '../validations/turnoValidation';
 import { verificarPerfilCompletoParaTurno } from './pacienteService';
+import { validarHorarioEnAgenda } from './profesionalAgendaService';
 import {
   enviarNotificacionTurnoReservado,
   enviarNotificacionTurnoReprogramado,
@@ -15,9 +16,11 @@ import {
  */
 export async function crearTurno(
   datos: CrearTurnoInput,
-  usuarioAutenticado: AccessTokenPayload
+  usuarioAutenticado: AccessTokenPayload,
+  ip?: string
 ) {
   let idPaciente: number;
+  const esAdmin = usuarioAutenticado.rolActivo === 'ADMINISTRATIVO';
 
   if (usuarioAutenticado.rolActivo === 'PACIENTE') {
     // Si quien llama es un paciente autenticado, obtenemos su idPaciente
@@ -30,14 +33,23 @@ export async function crearTurno(
     }
     idPaciente = pacienteLogueado.idPaciente;
   } else if (
-    usuarioAutenticado.rolActivo === 'ADMINISTRATIVO' ||
+    esAdmin ||
     usuarioAutenticado.rolActivo === 'PROFESIONAL'
   ) {
-    // Si un administrativo o profesional crea el turno, debe especificar idPaciente
-    if (!datos.idPaciente) {
-      throw new AppError('Debe especificar el idPaciente al registrar un turno.', 400);
+    if (datos.dniPaciente) {
+      const usuarioPaciente = await prisma.usuario.findUnique({
+        where: { dni: datos.dniPaciente },
+        include: { paciente: true },
+      });
+      if (!usuarioPaciente || !usuarioPaciente.paciente) {
+        throw new AppError('El paciente no se encuentra registrado en el sistema', 404);
+      }
+      idPaciente = usuarioPaciente.paciente.idPaciente;
+    } else if (datos.idPaciente) {
+      idPaciente = datos.idPaciente;
+    } else {
+      throw new AppError('Por favor, complete todos los campos obligatorios para continuar.', 400);
     }
-    idPaciente = datos.idPaciente;
   } else {
     throw new AppError('No posee permisos para solicitar o crear turnos.', 403);
   }
@@ -61,7 +73,7 @@ export async function crearTurno(
 
   // 2. VALIDACIÓN CRÍTICA: Verificar si el paciente tiene email, sexo y obra social/plan.
   // Si falta alguno de estos datos, se arroja un error 403 pidiéndole completar su perfil.
-  verificarPerfilCompletoParaTurno(paciente);
+  verificarPerfilCompletoParaTurno(paciente, esAdmin);
 
   // 3. Verificar que el profesional exista y esté activo
   const profesional = await prisma.profesional.findUnique({
@@ -78,6 +90,9 @@ export async function crearTurno(
     throw new AppError('El profesional seleccionado no existe o no se encuentra activo.', 404);
   }
 
+  // 3.5. VALIDACIÓN DE AGENDA: Verificar que el horario esté dentro de la agenda activa
+  await validarHorarioEnAgenda(datos.idProfesional, datos.fechaHora);
+
   // 4. Verificar que no exista un turno superpuesto para ese profesional
   const turnoExistente = await prisma.turno.findFirst({
     where: {
@@ -91,12 +106,12 @@ export async function crearTurno(
 
   if (turnoExistente) {
     throw new AppError(
-      'El profesional ya cuenta con un turno reservado para esa fecha y hora.',
+      'El profesional seleccionado ya posee un turno asignado en ese horario...',
       409
     );
   }
 
-  // 4.5. Escenario 2: Verificar que el paciente no tenga ya dos turnos activos con este profesional
+  // 4.5. Escenario 2 / Escenario 7: Verificar que el paciente no tenga ya dos turnos activos con este profesional
   const turnosActivos = await prisma.turno.count({
     where: {
       idPaciente,
@@ -108,10 +123,10 @@ export async function crearTurno(
   });
 
   if (turnosActivos >= 2) {
-    throw new AppError(
-      'Ya tenés dos turnos activos con este profesional.',
-      409
-    );
+    const mensajeConflicto = esAdmin
+      ? 'El paciente ya tiene dos turnos activos con este profesional...'
+      : 'Ya tenés dos turnos activos con este profesional...';
+    throw new AppError(mensajeConflicto, 409);
   }
 
   // 5. Crear el nuevo turno. El índice único parcial
@@ -343,6 +358,10 @@ export async function cancelarTurno(idTurno: number, usuarioAutenticado: AccessT
   }
 
   // Validar permisos
+  if (usuarioAutenticado.rolActivo === 'ADMINISTRATIVO') {
+    return cancelarTurnoAdmin(idTurno, usuarioAutenticado);
+  }
+
   if (usuarioAutenticado.rolActivo === 'PACIENTE') {
     const paciente = await prisma.paciente.findUnique({
       where: { idUsuario: usuarioAutenticado.idUsuario },
@@ -439,6 +458,11 @@ export async function reprogramarTurno(
     throw new AppError('Turno no encontrado.', 404);
   }
 
+  // Bypass de 24 horas y flujo para administración
+  if (usuarioAutenticado.rolActivo === 'ADMINISTRATIVO') {
+    return reprogramarTurnoAdmin(idTurno, nuevaFechaHora, usuarioAutenticado);
+  }
+
   // 1. VALIDACIÓN CRÍTICA: Verificar si el paciente tiene email, sexo y obra social/plan.
   verificarPerfilCompletoParaTurno(turnoOriginal.paciente);
 
@@ -532,3 +556,224 @@ export async function reprogramarTurno(
     turno: nuevoTurno,
   };
 }
+
+/**
+ * Cancelación administrativa de turnos (HU12)
+ * Sin restricción de 24 horas y con registro inmutable de auditoría.
+ */
+export async function cancelarTurnoAdmin(
+  idTurno: number,
+  usuarioAutenticado: AccessTokenPayload,
+  motivoCancelacion?: string,
+  ip?: string
+) {
+  if (usuarioAutenticado.rolActivo !== 'ADMINISTRATIVO') {
+    throw new AppError('Acceso denegado. Se requiere rol de administrativo.', 403);
+  }
+
+  const turno = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: {
+      paciente: { include: { usuario: true } },
+      profesional: { include: { usuario: true } },
+    },
+  });
+
+  if (!turno) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  if (!['SOLICITADO', 'CONFIRMADO'].includes(turno.estado)) {
+    throw new AppError(`No se puede cancelar un turno en estado ${turno.estado}.`, 400);
+  }
+
+  const motivoFinal = motivoCancelacion || 'Cancelado por solicitud en ventanilla de administración';
+
+  const turnoCancelado = await prisma.turno.update({
+    where: { idTurno },
+    data: {
+      estado: 'CANCELADO',
+      motivoCancelacion: motivoFinal,
+    },
+  });
+
+  await prisma.auditoria.create({
+    data: {
+      idUsuario: usuarioAutenticado.idUsuario,
+      fechaHora: new Date(),
+      accion: 'CANCELAR_TURNO_ADMIN',
+      tablaAfectada: 'turno',
+      idRegistroAfectado: idTurno,
+      datosAnteriores: JSON.stringify({
+        estado: turno.estado,
+        fechaHora: turno.fechaHora,
+      }),
+      datosNuevos: JSON.stringify({
+        estado: 'CANCELADO',
+        motivoCancelacion: motivoFinal,
+      }),
+      ip,
+      descripcion: `Turno ${idTurno} cancelado por administración.`,
+    },
+  });
+
+  const emailPaciente = turno.paciente?.usuario?.email;
+  if (emailPaciente) {
+    try {
+      await enviarNotificacionTurnoCancelado({
+        emailPaciente,
+        nombrePaciente: `${turno.paciente.usuario.nombre} ${turno.paciente.usuario.apellido}`,
+        nombreProfesional: `${turno.profesional.usuario.nombre} ${turno.profesional.usuario.apellido}`,
+        fechaHora: turno.fechaHora,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de cancelación de turno:', error);
+    }
+  }
+
+  return {
+    mensaje: 'El turno ha sido cancelado correctamente.',
+    idTurno: turnoCancelado.idTurno,
+    estado: 'CANCELADO',
+    turno: turnoCancelado,
+  };
+}
+
+/**
+ * Reprogramación administrativa de turnos (HU12)
+ * Sin restricción de 24 horas, validación de agenda activa y registro inmutable de auditoría.
+ */
+export async function reprogramarTurnoAdmin(
+  idTurno: number,
+  nuevaFechaHora: Date,
+  usuarioAutenticado: AccessTokenPayload,
+  motivo?: string,
+  ip?: string
+) {
+  if (usuarioAutenticado.rolActivo !== 'ADMINISTRATIVO') {
+    throw new AppError('Acceso denegado. Se requiere rol de administrativo.', 403);
+  }
+
+  const turnoOriginal = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: {
+      paciente: {
+        include: {
+          usuario: true,
+          plan: { include: { obraSocial: true } },
+        },
+      },
+      profesional: {
+        include: {
+          usuario: true,
+        },
+      },
+    },
+  });
+
+  if (!turnoOriginal) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  if (!['SOLICITADO', 'CONFIRMADO'].includes(turnoOriginal.estado)) {
+    throw new AppError(`No se puede reprogramar un turno en estado ${turnoOriginal.estado}.`, 400);
+  }
+
+  // 1. Validar que el paciente tenga perfil completo
+  verificarPerfilCompletoParaTurno(turnoOriginal.paciente, true);
+
+  // 2. Validar que la nueva fechaHora esté dentro de la agenda activa del profesional
+  await validarHorarioEnAgenda(turnoOriginal.idProfesional, nuevaFechaHora);
+
+  // 3. Validar solapamiento con otro turno del profesional (excluyendo el turno actual)
+  const turnoExistente = await prisma.turno.findFirst({
+    where: {
+      idProfesional: turnoOriginal.idProfesional,
+      fechaHora: nuevaFechaHora,
+      estado: {
+        in: ['SOLICITADO', 'CONFIRMADO'],
+      },
+      idTurno: { not: idTurno },
+    },
+  });
+
+  if (turnoExistente) {
+    throw new AppError(
+      'El profesional seleccionado ya posee un turno asignado en ese horario...',
+      409
+    );
+  }
+
+  let nuevoTurno: any;
+  await prisma.$transaction(async (tx) => {
+    await tx.turno.update({
+      where: { idTurno },
+      data: {
+        estado: 'REPROGRAMADO',
+      },
+    });
+
+    nuevoTurno = await tx.turno.create({
+      data: {
+        idPaciente: turnoOriginal.idPaciente,
+        idProfesional: turnoOriginal.idProfesional,
+        fechaHora: nuevaFechaHora,
+        estado: 'SOLICITADO',
+      },
+      include: {
+        paciente: { include: { usuario: true } },
+        profesional: { include: { usuario: true } },
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: usuarioAutenticado.idUsuario,
+        fechaHora: new Date(),
+        accion: 'REPROGRAMAR_TURNO_ADMIN',
+        tablaAfectada: 'turno',
+        idRegistroAfectado: nuevoTurno.idTurno,
+        datosAnteriores: JSON.stringify({
+          idTurnoOriginal: turnoOriginal.idTurno,
+          fechaHoraOriginal: turnoOriginal.fechaHora,
+          estadoOriginal: turnoOriginal.estado,
+        }),
+        datosNuevos: JSON.stringify({
+          idTurnoNuevo: nuevoTurno.idTurno,
+          nuevaFechaHora,
+          estado: 'SOLICITADO',
+          motivo: motivo || 'Reprogramación solicitada por administración',
+        }),
+        ip,
+        descripcion: `Turno ${idTurno} reprogramado por administración al nuevo turno ${nuevoTurno.idTurno} (${nuevaFechaHora.toISOString()}).`,
+      },
+    });
+  });
+
+  const emailPaciente = turnoOriginal.paciente?.usuario?.email;
+  if (emailPaciente) {
+    try {
+      await enviarNotificacionTurnoReprogramado({
+        emailPaciente,
+        nombrePaciente: `${turnoOriginal.paciente.usuario.nombre} ${turnoOriginal.paciente.usuario.apellido}`,
+        nombreProfesional: `${turnoOriginal.profesional.usuario.nombre} ${turnoOriginal.profesional.usuario.apellido}`,
+        fechaHoraAnterior: turnoOriginal.fechaHora,
+        nuevaFechaHora,
+      });
+    } catch (error) {
+      console.error('Error al enviar email de reprogramación de turno:', error);
+    }
+  }
+
+  return {
+    mensaje: 'Turno reprogramado exitosamente.',
+    turnoAnterior: { idTurno: turnoOriginal.idTurno, estado: 'REPROGRAMADO' },
+    nuevoTurno: {
+      idTurno: nuevoTurno.idTurno,
+      estado: nuevoTurno.estado,
+      fechaHora: nuevoTurno.fechaHora,
+    },
+    turno: nuevoTurno,
+  };
+}
+

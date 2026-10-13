@@ -16,6 +16,21 @@ export const crearTurnoSchema = z.object({
     .int('El identificador del paciente debe ser un número entero.')
     .positive('El identificador del paciente debe ser positivo.')
     .optional(),
+  dniPaciente: z
+    .string()
+    .regex(/^\d{7,8}$/, 'El DNI debe contener entre 7 y 8 números.')
+    .optional(),
+});
+
+export const reprogramarTurnoAdminSchema = z.object({
+  nuevaFechaHora: z.coerce.date({ error: 'Debe ingresar una fecha y hora válida.' }),
+  motivo: z.string().optional(),
+});
+
+export const cancelarTurnoAdminSchema = z.object({
+  motivoCancelacion: z.string().optional(),
 });
 
 export type CrearTurnoInput = z.infer<typeof crearTurnoSchema>;
+export type ReprogramarTurnoAdminInput = z.infer<typeof reprogramarTurnoAdminSchema>;
+export type CancelarTurnoAdminInput = z.infer<typeof cancelarTurnoAdminSchema>;

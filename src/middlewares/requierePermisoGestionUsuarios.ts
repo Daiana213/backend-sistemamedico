@@ -25,7 +25,7 @@ export async function requierePermisoGestionUsuarios(
       administrativo.estado !== 'ACTIVO' ||
       !administrativo.permisoGestionUsuarios
     ) {
-      throw new AppError('No tenés permisos para acceder a esta funcionalidad.', 403);
+      throw new AppError('No tenés permisos para acceder a esta sección', 403);
     }
 
     req.administrativo = administrativo;

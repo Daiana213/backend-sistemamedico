@@ -10,7 +10,7 @@ const router = Router();
 router.post(
   '/',
   authenticate,
-  validate(crearTurnoSchema),
+  validate(crearTurnoSchema, { customMessage: 'Por favor, complete todos los campos obligatorios para continuar.' }),
   turnoController.crear
 );
 
@@ -32,8 +32,34 @@ router.post(
 router.post(
   '/:id/reprogramar',
   authenticate,
-  // aquí se podría agregar un validate para fechaHora
   turnoController.reprogramar
 );
 
+// HU12: Reprogramación administrativa de turnos (PUT /:id y PATCH /:id/reprogramar-admin)
+router.put(
+  '/:id',
+  authenticate,
+  turnoController.reprogramarAdmin
+);
+
+router.patch(
+  '/:id/reprogramar-admin',
+  authenticate,
+  turnoController.reprogramarAdmin
+);
+
+// HU12: Cancelación administrativa de turnos (DELETE /:id y PATCH /:id/cancelar-admin)
+router.delete(
+  '/:id',
+  authenticate,
+  turnoController.cancelarAdmin
+);
+
+router.patch(
+  '/:id/cancelar-admin',
+  authenticate,
+  turnoController.cancelarAdmin
+);
+
 export default router;
+

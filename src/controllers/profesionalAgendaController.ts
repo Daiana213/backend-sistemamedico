@@ -1,7 +1,23 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../utils/AppError';
-import { obtenerAgendaProfesional, configurarAgenda, obtenerDisponibilidad, obtenerMiDisponibilidad } from '../services/profesionalAgendaService';
+import {
+  obtenerAgendaProfesional,
+  configurarAgenda,
+  obtenerDisponibilidad,
+  obtenerMiDisponibilidad,
+  obtenerConfiguracionAgenda,
+} from '../services/profesionalAgendaService';
+
+export const obtenerAgendaConfiguracion = asyncHandler(async (req: Request, res: Response) => {
+  const idProfesional = parseInt(req.params.id as string, 10);
+  if (isNaN(idProfesional)) {
+    throw new AppError('ID de profesional inválido.', 400);
+  }
+
+  const resultado = await obtenerConfiguracionAgenda(idProfesional);
+  res.status(200).json(resultado);
+});
 
 export const configurarMiAgenda = asyncHandler(async (req: Request, res: Response) => {
   const idProfesional = parseInt(req.params.id as string, 10);

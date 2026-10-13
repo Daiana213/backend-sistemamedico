@@ -178,10 +178,14 @@ async function agregarRolProfesional(
   };
 }
 
-export async function listarProfesionales(idEspecialidad?: number) {
-  const whereClause: any = {
-    estado: 'ACTIVO',
-  };
+import { EditarProfesionalInput } from '../validations/profesionalEdicionValidation';
+
+export async function listarProfesionales(idEspecialidad?: number, incluirInactivos = false) {
+  const whereClause: any = {};
+
+  if (!incluirInactivos) {
+    whereClause.estado = 'ACTIVO';
+  }
 
   if (idEspecialidad) {
     whereClause.especialidades = {
@@ -199,6 +203,9 @@ export async function listarProfesionales(idEspecialidad?: number) {
         select: {
           nombre: true,
           apellido: true,
+          dni: true,
+          email: true,
+          telefono: true,
         },
       },
       especialidades: {
@@ -217,8 +224,247 @@ export async function listarProfesionales(idEspecialidad?: number) {
 
   return profesionales.map((p) => ({
     idProfesional: p.idProfesional,
+    idUsuario: p.idUsuario,
     nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
     matricula: p.matricula,
+    estado: p.estado,
     especialidades: p.especialidades.map((e) => e.especialidad.nombre),
+    especialidadesDetalle: p.especialidades.map((e) => ({
+      idEspecialidad: e.especialidad.idEspecialidad,
+      nombre: e.especialidad.nombre,
+    })),
   }));
 }
+
+export async function obtenerProfesionalPorId(idProfesional: number) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional },
+    include: {
+      usuario: true,
+      especialidades: {
+        where: { estado: 'ACTIVO' },
+        include: {
+          especialidad: true,
+        },
+      },
+    },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  return {
+    idProfesional: profesional.idProfesional,
+    idUsuario: profesional.idUsuario,
+    matricula: profesional.matricula,
+    estado: profesional.estado,
+    fechaAlta: profesional.fechaAlta,
+    fechaBaja: profesional.fechaBaja,
+    telefonoAlternativo: profesional.telefonoAlternativo,
+    emailAlternativo: profesional.emailAlternativo,
+    usuario: {
+      idUsuario: profesional.usuario.idUsuario,
+      nombre: profesional.usuario.nombre,
+      apellido: profesional.usuario.apellido,
+      dni: profesional.usuario.dni,
+      email: profesional.usuario.email,
+      telefono: profesional.usuario.telefono,
+    },
+    especialidades: profesional.especialidades.map((e) => ({
+      idEspecialidad: e.especialidad.idEspecialidad,
+      nombre: e.especialidad.nombre,
+    })),
+  };
+}
+
+export async function editarProfesional(
+  idProfesional: number,
+  datos: EditarProfesionalInput,
+  idAdministrativo: number,
+  ip?: string
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional },
+    include: {
+      usuario: true,
+      especialidades: {
+        where: { estado: 'ACTIVO' },
+      },
+    },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  // Si se cambia el email, validar que no esté en uso por otro usuario
+  if (datos.email && datos.email !== profesional.usuario.email) {
+    const usuarioConEmail = await prisma.usuario.findFirst({
+      where: {
+        email: datos.email,
+        idUsuario: { not: profesional.idUsuario },
+      },
+    });
+    if (usuarioConEmail) {
+      throw new AppError('El correo electrónico ingresado ya se encuentra registrado.', 409);
+    }
+  }
+
+  // Validar especialidades
+  const especialidades = await prisma.especialidad.findMany({
+    where: { idEspecialidad: { in: datos.especialidades }, estado: 'ACTIVO' },
+  });
+  if (especialidades.length !== datos.especialidades.length) {
+    throw new AppError('Una o más especialidades seleccionadas no son válidas.', 400);
+  }
+
+  const prevData = {
+    nombre: profesional.usuario.nombre,
+    apellido: profesional.usuario.apellido,
+    telefono: profesional.usuario.telefono,
+    email: profesional.usuario.email,
+    telefonoAlternativo: profesional.telefonoAlternativo,
+    emailAlternativo: profesional.emailAlternativo,
+    estado: profesional.estado,
+    especialidades: profesional.especialidades.map((e) => e.idEspecialidad),
+  };
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Actualizar datos de usuario
+    await tx.usuario.update({
+      where: { idUsuario: profesional.idUsuario },
+      data: {
+        nombre: datos.nombre,
+        apellido: datos.apellido,
+        telefono: datos.telefono,
+        email: datos.email,
+      },
+    });
+
+    // 2. Actualizar datos del profesional
+    await tx.profesional.update({
+      where: { idProfesional },
+      data: {
+        telefonoAlternativo: datos.telefonoAlternativo ?? null,
+        emailAlternativo: datos.emailAlternativo ?? null,
+        ...(datos.estado ? { estado: datos.estado } : {}),
+      },
+    });
+
+    // 3. Sincronizar especialidades
+    await tx.profesionalEspecialidad.deleteMany({
+      where: { idProfesional },
+    });
+
+    await tx.profesionalEspecialidad.createMany({
+      data: datos.especialidades.map((idEspecialidad) => ({
+        idProfesional,
+        idEspecialidad,
+        fechaAsignacion: new Date(),
+        estado: 'ACTIVO',
+      })),
+    });
+
+    // 4. Log de auditoría con diff
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idAdministrativo,
+        fechaHora: new Date(),
+        accion: 'MODIFICACION_PROFESIONAL',
+        tablaAfectada: 'profesional',
+        idRegistroAfectado: idProfesional,
+        datosAnteriores: JSON.stringify(prevData),
+        datosNuevos: JSON.stringify(datos),
+        ip,
+        descripcion: `Edición de datos de profesional ${datos.nombre} ${datos.apellido} (matrícula: ${profesional.matricula}).`,
+      },
+    });
+  });
+
+  return {
+    mensaje: 'Profesional actualizado correctamente.',
+  };
+}
+
+export async function darDeBajaProfesional(
+  idProfesional: number,
+  idAdministrativo: number,
+  ip?: string
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional },
+    include: { usuario: true },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  // Escenario 4: Verificar si posee turnos pendientes
+  const turnosPendientes = await prisma.turno.findMany({
+    where: {
+      idProfesional,
+      estado: { in: ['SOLICITADO', 'CONFIRMADO'] },
+    },
+    include: {
+      paciente: {
+        include: {
+          usuario: {
+            select: {
+              nombre: true,
+              apellido: true,
+              dni: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: { fechaHora: 'asc' },
+  });
+
+  if (turnosPendientes.length > 0) {
+    throw new AppError(
+      'No es posible dar de baja al profesional porque posee turnos pendientes.',
+      409,
+      {
+        turnosPendientes: turnosPendientes.map((t) => ({
+          idTurno: t.idTurno,
+          fechaHora: t.fechaHora,
+          estado: t.estado,
+          paciente: `${t.paciente.usuario.nombre} ${t.paciente.usuario.apellido}`,
+          dniPaciente: t.paciente.usuario.dni,
+        })),
+      }
+    );
+  }
+
+  // Escenario 3: Baja lógica sin turnos pendientes
+  await prisma.$transaction(async (tx) => {
+    await tx.profesional.update({
+      where: { idProfesional },
+      data: {
+        estado: 'INACTIVO',
+        fechaBaja: new Date(),
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idAdministrativo,
+        fechaHora: new Date(),
+        accion: 'BAJA_LOGICA_PROFESIONAL',
+        tablaAfectada: 'profesional',
+        idRegistroAfectado: idProfesional,
+        datosAnteriores: JSON.stringify({ estado: profesional.estado }),
+        datosNuevos: JSON.stringify({ estado: 'INACTIVO', fechaBaja: new Date() }),
+        ip,
+        descripcion: `Baja lógica de profesional ${profesional.usuario.nombre} ${profesional.usuario.apellido} (matrícula: ${profesional.matricula}).`,
+      },
+    });
+  });
+
+  return {
+    mensaje: 'El profesional ha sido dado de baja correctamente.',
+  };
+}

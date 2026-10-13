@@ -2,10 +2,23 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import { validate } from '../middlewares/validate';
 import { requierePermisoGestionUsuarios } from '../middlewares/requierePermisoGestionUsuarios';
-import { registrarProfesionalController, listarProfesionalesController } from '../controllers/profesionalController';
+import {
+  registrarProfesionalController,
+  listarProfesionalesController,
+  obtenerProfesionalPorIdController,
+  editarProfesionalController,
+  darDeBajaProfesionalController,
+} from '../controllers/profesionalController';
 import { registrarProfesionalSchema } from '../validations/profesionalValidation';
+import { editarProfesionalSchema } from '../validations/profesionalEdicionValidation';
 import { authorize } from '../middlewares/authorize';
-import { configurarMiAgenda, obtenerMiAgenda, getDisponibilidad, getMiDisponibilidad } from '../controllers/profesionalAgendaController';
+import {
+  configurarMiAgenda,
+  obtenerMiAgenda,
+  getDisponibilidad,
+  getMiDisponibilidad,
+  obtenerAgendaConfiguracion,
+} from '../controllers/profesionalAgendaController';
 import { crearTurnoPorProfesional } from '../controllers/turnoController';
 import { configurarAgendaSchema } from '../validations/agendaValidation';
 
@@ -27,6 +40,14 @@ router.get(
   obtenerMiAgenda
 );
 
+// HU19: Consultar agenda configurada de un profesional (Administrativo con permisos para precarga)
+router.get(
+  '/:id/agenda',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  obtenerAgendaConfiguracion
+);
+
 // HU19: Configurar agenda de cada profesional (Administrativo con permisos)
 router.put(
   '/:id/agenda',
@@ -34,6 +55,31 @@ router.put(
   requierePermisoGestionUsuarios,
   validate(configurarAgendaSchema),
   configurarMiAgenda
+);
+
+// HU14: Consultar profesional por ID para edición
+router.get(
+  '/:id',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  obtenerProfesionalPorIdController
+);
+
+// HU14: Editar profesional
+router.put(
+  '/:id',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  validate(editarProfesionalSchema),
+  editarProfesionalController
+);
+
+// HU14: Baja lógica de profesional (bloqueado si tiene turnos pendientes)
+router.delete(
+  '/:id',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  darDeBajaProfesionalController
 );
 
 // Obtener disponibilidad del profesional autenticado

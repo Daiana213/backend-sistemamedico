@@ -448,11 +448,14 @@ export async function obtenerPerfilPaciente(idUsuario: number) {
  * - Obra social / Plan (en Paciente)
  * Si falta alguno, arroja un AppError con código 403.
  */
-export function verificarPerfilCompletoParaTurno(paciente: {
-  usuario?: { email: string | null } | null;
-  sexo: string | null;
-  idPlan: number | null;
-}) {
+export function verificarPerfilCompletoParaTurno(
+  paciente: {
+    usuario?: { email: string | null } | null;
+    sexo: string | null;
+    idPlan: number | null;
+  },
+  esAdmin = false
+) {
   const camposFaltantes: string[] = [];
 
   if (!paciente.usuario?.email) {
@@ -466,10 +469,12 @@ export function verificarPerfilCompletoParaTurno(paciente: {
   }
 
   if (camposFaltantes.length > 0) {
+    const mensaje = esAdmin
+      ? 'El paciente debe completar sus datos antes de agendar un turno.'
+      : 'Para sacar un turno primero tenés que completar tus datos.';
+
     throw new AppError(
-      `Para solicitar un turno debe completar los siguientes datos obligatorios de su perfil: ${camposFaltantes.join(
-        ', '
-      )}. Por favor, actualice sus datos en /api/pacientes/perfil antes de continuar.`,
+      mensaje,
       403,
       {
         camposFaltantes,

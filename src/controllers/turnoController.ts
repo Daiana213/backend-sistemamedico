@@ -8,7 +8,7 @@ export const crear = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('No autorizado. Debe iniciar sesión para solicitar un turno.', 401);
   }
 
-  const resultado = await turnoService.crearTurno(req.body, req.usuario);
+  const resultado = await turnoService.crearTurno(req.body, req.usuario, req.ip);
   res.status(201).json(resultado);
 });
 
@@ -53,6 +53,7 @@ export const cancelar = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('ID de turno inválido', 400);
   }
 
+  const motivoCancelacion = req.body?.motivoCancelacion;
   const resultado = await turnoService.cancelarTurno(idTurno, req.usuario);
   res.status(200).json(resultado);
 });
@@ -66,7 +67,7 @@ export const reprogramar = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('ID de turno inválido', 400);
   }
   
-  const { fechaHora } = req.body;
+  const fechaHora = req.body.nuevaFechaHora || req.body.fechaHora;
   if (!fechaHora) {
     throw new AppError('Se requiere la nueva fechaHora', 400);
   }
@@ -79,3 +80,42 @@ export const reprogramar = asyncHandler(async (req: Request, res: Response) => {
   const resultado = await turnoService.reprogramarTurno(idTurno, nuevaFecha, req.usuario);
   res.status(200).json(resultado);
 });
+
+export const cancelarAdmin = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.usuario) {
+    throw new AppError('No autorizado.', 401);
+  }
+  const idTurno = parseInt(req.params.id as string, 10);
+  if (isNaN(idTurno)) {
+    throw new AppError('ID de turno inválido', 400);
+  }
+
+  const motivoCancelacion = req.body?.motivoCancelacion;
+  const resultado = await turnoService.cancelarTurnoAdmin(idTurno, req.usuario, motivoCancelacion, req.ip);
+  res.status(200).json(resultado);
+});
+
+export const reprogramarAdmin = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.usuario) {
+    throw new AppError('No autorizado.', 401);
+  }
+  const idTurno = parseInt(req.params.id as string, 10);
+  if (isNaN(idTurno)) {
+    throw new AppError('ID de turno inválido', 400);
+  }
+
+  const fechaHora = req.body.nuevaFechaHora || req.body.fechaHora;
+  if (!fechaHora) {
+    throw new AppError('Se requiere la nueva fechaHora', 400);
+  }
+
+  const nuevaFecha = new Date(fechaHora);
+  if (isNaN(nuevaFecha.getTime())) {
+    throw new AppError('Formato de fechaHora inválido', 400);
+  }
+
+  const motivo = req.body?.motivo;
+  const resultado = await turnoService.reprogramarTurnoAdmin(idTurno, nuevaFecha, req.usuario, motivo, req.ip);
+  res.status(200).json(resultado);
+});
+

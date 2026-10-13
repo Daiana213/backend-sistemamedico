@@ -259,10 +259,28 @@ export async function obtenerDisponibilidad(idProfesional: number, fecha: string
     }
   });
 
+  const totalAgendas = await prisma.agendaProfesional.count({
+    where: {
+      idProfesional,
+      estado: 'ACTIVO',
+    },
+  });
+
+  if (totalAgendas === 0) {
+    return {
+      idProfesional,
+      fecha,
+      tieneAgendaConfigurada: false,
+      mensaje: 'Este profesional aún no tiene horarios disponibles',
+      turnosDisponibles: [],
+    };
+  }
+
   if (agendas.length === 0) {
     return {
       idProfesional,
       fecha,
+      tieneAgendaConfigurada: true,
       turnosDisponibles: []
     };
   }
@@ -353,4 +371,104 @@ export async function obtenerMiDisponibilidad(idUsuario: number, fecha: string) 
   
   // Optionally hide idProfesional if not needed, but maintaining the same interface is fine
   return resultado;
+}
+
+export async function obtenerConfiguracionAgenda(idProfesional: number) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional },
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+        },
+      },
+    },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  const agendas = await prisma.agendaProfesional.findMany({
+    where: {
+      idProfesional,
+      estado: 'ACTIVO',
+    },
+    orderBy: [
+      { diaSemana: 'asc' },
+      { horaInicio: 'asc' },
+    ],
+  });
+
+  return {
+    profesional: {
+      idProfesional: profesional.idProfesional,
+      nombreCompleto: `${profesional.usuario.nombre} ${profesional.usuario.apellido}`,
+      matricula: profesional.matricula,
+      estado: profesional.estado,
+    },
+    tieneAgendaConfigurada: agendas.length > 0,
+    agendas: agendas.map((a) => ({
+      idAgendaProfesional: a.idAgendaProfesional,
+      diaSemana: a.diaSemana,
+      horaInicio: a.horaInicio,
+      horaFin: a.horaFin,
+      duracionTurnoMinutos: a.duracionTurnoMinutos,
+      estado: a.estado,
+    })),
+  };
+}
+
+export async function validarHorarioEnAgenda(idProfesional: number, fechaHora: Date) {
+  const totalAgendas = await prisma.agendaProfesional.count({
+    where: {
+      idProfesional,
+      estado: 'ACTIVO',
+    },
+  });
+
+  if (totalAgendas === 0) {
+    throw new AppError('Este profesional aún no tiene horarios disponibles', 400);
+  }
+
+  // Argentina es UTC-3 todo el año (sin horario de verano)
+  const utcOffset = -3 * 60; // minutos
+  const fechaLocal = new Date(fechaHora.getTime() + utcOffset * 60000);
+  const diaSemana = fechaLocal.getUTCDay();
+  const hora = fechaLocal.getUTCHours();
+  const minuto = fechaLocal.getUTCMinutes();
+  const minutosTurno = hora * 60 + minuto;
+
+  const franjas = await prisma.agendaProfesional.findMany({
+    where: {
+      idProfesional,
+      diaSemana,
+      estado: 'ACTIVO',
+    },
+  });
+
+  if (franjas.length === 0) {
+    throw new AppError('El horario seleccionado no se encuentra dentro de la agenda configurada del profesional.', 400);
+  }
+
+  let slotValido = false;
+  for (const franja of franjas) {
+    const [hIni, mIni] = franja.horaInicio.split(':').map(Number);
+    const [hFin, mFin] = franja.horaFin.split(':').map(Number);
+    const minutosInicio = hIni * 60 + mIni;
+    const minutosFin = hFin * 60 + mFin;
+    const duracion = franja.duracionTurnoMinutos;
+
+    if (minutosTurno >= minutosInicio && (minutosTurno + duracion) <= minutosFin) {
+      if ((minutosTurno - minutosInicio) % duracion === 0) {
+        slotValido = true;
+        break;
+      }
+    }
+  }
+
+  if (!slotValido) {
+    throw new AppError('El horario seleccionado no se encuentra dentro de la agenda configurada del profesional.', 400);
+  }
 }
