@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { obtenerDocumentoPorId } from '../controllers/documentosController';
 import { authenticate } from '../middlewares/authenticate';
-import { requiereAdminActivo } from '../middlewares/requiereAdminActivo';
 
 const router = Router();
 
-router.get('/:idDocumento', authenticate, requiereAdminActivo, obtenerDocumentoPorId);
+router.get('/:idDocumento', authenticate, obtenerDocumentoPorId);
 
 export default router;
+

@@ -336,7 +336,83 @@ export async function reenviarDocumentacion(
         observaciones: null,
       },
     });
+
+    // Auditoría
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idUsuarioAutenticado,
+        fechaHora: new Date(),
+        accion: 'REENVIAR_DOCUMENTACION_MENOR',
+        tablaAfectada: 'paciente',
+        idRegistroAfectado: idPacienteResponsable,
+        descripcion: `El adulto responsable reenvió documentación (${tipoDocumento}).`,
+      },
+    });
   });
 
   return { mensaje: 'Documentación reenviada correctamente. El registro vuelve a estar pendiente de aprobación.' };
 }
+
+// ─── Listado de menores a cargo de un adulto responsable ───────────────────────
+
+export async function listarMenoresDeResponsable(idUsuarioResponsable: number) {
+  const pacienteAdulto = await prisma.paciente.findUnique({
+    where: { idUsuario: idUsuarioResponsable },
+  });
+
+  if (!pacienteAdulto) {
+    return [];
+  }
+
+  const vinculos = await prisma.pacienteResponsable.findMany({
+    where: {
+      idResponsable: pacienteAdulto.idPaciente,
+      estado: 'ACTIVO',
+    },
+    include: {
+      paciente: {
+        include: {
+          usuario: {
+            select: {
+              nombre: true,
+              apellido: true,
+              dni: true,
+              email: true,
+              telefono: true,
+            },
+          },
+        },
+      },
+      documentos: {
+        orderBy: { fechaCarga: 'desc' },
+      },
+    },
+    orderBy: { fechaInicio: 'desc' },
+  });
+
+  return vinculos.map((v) => {
+    const ultimoDoc = v.documentos[0] || null;
+    return {
+      idPaciente: v.paciente.idPaciente,
+      nombre: v.paciente.usuario.nombre,
+      apellido: v.paciente.usuario.apellido,
+      dni: v.paciente.usuario.dni,
+      email: v.paciente.usuario.email,
+      telefono: v.paciente.usuario.telefono,
+      fechaNacimiento: v.paciente.fechaNacimiento,
+      parentesco: v.parentesco,
+      estado: v.paciente.estado,
+      documento: ultimoDoc
+        ? {
+            idDocumento: ultimoDoc.idDocumento,
+            tipoDocumento: ultimoDoc.tipoDocumento,
+            nombreArchivo: ultimoDoc.nombreArchivo,
+            fechaCarga: ultimoDoc.fechaCarga,
+            estadoValidacion: ultimoDoc.estadoValidacion,
+            observaciones: ultimoDoc.observaciones,
+            intentos: ultimoDoc.intentos,
+          }
+        : null,
+    };
+  });
+}

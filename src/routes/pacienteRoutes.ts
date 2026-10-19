@@ -8,7 +8,7 @@ import {
 import * as pacienteController from '../controllers/pacienteController';
 import * as antecedentesController from '../controllers/antecedentesController';
 import { uploadDocumentoResponsable } from '../middlewares/upload';
-import { reenviarDoc } from '../controllers/menorController';
+import { reenviarDoc, listarMisMenores } from '../controllers/menorController';
 import { antecedentesMedicosSchema } from '../validations/antecedentesValidation';
 import { authorize } from '../middlewares/authorize';
 
@@ -52,6 +52,15 @@ router.patch(
   uploadDocumentoResponsable.single('documento'),
   reenviarDoc
 );
+
+// Obtener menores a cargo del paciente adulto autenticado
+router.get(
+  '/mis-menores',
+  authenticate,
+  authorize('PACIENTE'),
+  listarMisMenores
+);
+
 
 // Obtener antecedentes médicos
 router.get(

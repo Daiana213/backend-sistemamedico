@@ -14,14 +14,27 @@ export const obtenerDocumentoPorId = asyncHandler(async (req: Request, res: Resp
 
   const documento = await prisma.documentoResponsable.findUnique({
     where: { idDocumento },
-    select: {
-      nombreArchivo: true,
-      rutaArchivo: true,
+    include: {
+      vinculo: {
+        include: {
+          responsable: true,
+          paciente: true,
+        },
+      },
     },
   });
 
   if (!documento) {
     throw new AppError('Documento no encontrado.', 404);
+  }
+
+  const idUsuarioActual = req.usuario?.idUsuario;
+  const esAdmin = req.usuario?.rolActivo === 'ADMINISTRATIVO';
+  const esResponsable = documento.vinculo.responsable.idUsuario === idUsuarioActual;
+  const esMenor = documento.vinculo.paciente.idUsuario === idUsuarioActual;
+
+  if (!esAdmin && !esResponsable && !esMenor) {
+    throw new AppError('No tenés permisos para ver este documento.', 403);
   }
 
   const rutaArchivo = documento.rutaArchivo?.trim();
