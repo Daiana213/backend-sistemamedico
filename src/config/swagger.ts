@@ -596,6 +596,92 @@ export const swaggerSpec = {
         },
       },
     },
+    '/reportes': {
+      get: {
+        summary: 'HU18: Obtener panel de métricas, gráficos estadísticos y listado de reportes',
+        tags: ['Reportes y Métricas'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'periodo',
+            in: 'query',
+            schema: { type: 'string', enum: ['mes_actual', 'ultimos_30_dias', 'personalizado'] },
+            description: 'Período a consultar (por defecto mes_actual)',
+          },
+          {
+            name: 'fechaInicio',
+            in: 'query',
+            schema: { type: 'string', example: '2026-10-01' },
+            description: 'Fecha de inicio (YYYY-MM-DD) para período personalizado',
+          },
+          {
+            name: 'fechaFin',
+            in: 'query',
+            schema: { type: 'string', example: '2026-10-31' },
+            description: 'Fecha de fin (YYYY-MM-DD) para período personalizado',
+          },
+          {
+            name: 'idEspecialidad',
+            in: 'query',
+            schema: { type: 'integer' },
+            description: 'Filtrar métricas por ID de especialidad',
+          },
+          {
+            name: 'idProfesional',
+            in: 'query',
+            schema: { type: 'integer' },
+            description: 'Filtrar métricas por ID de profesional',
+          },
+        ],
+        responses: {
+          200: { description: 'Panel de métricas, gráficos estadísticos y reportes generados.' },
+          401: { description: 'No autenticado.' },
+          403: { description: 'No tenés permisos para acceder a esta sección.' },
+        },
+      },
+    },
+    '/reportes/panel': {
+      get: {
+        summary: 'HU18: Obtener indicadores KPI, métricas operativas y gráficos estadísticos',
+        tags: ['Reportes y Métricas'],
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: { description: 'Indicadores y gráficos calculados para el período.' },
+          403: { description: 'No tenés permisos para acceder a esta sección.' },
+        },
+      },
+    },
+    '/reportes/generar': {
+      post: {
+        summary: 'HU18: Generar y persistir un reporte de métricas con registro en auditoría',
+        tags: ['Reportes y Métricas'],
+        security: [{ BearerAuth: [] }],
+        responses: {
+          201: { description: 'Reporte generado y registrado en auditoría.' },
+          403: { description: 'No tenés permisos para acceder a esta sección.' },
+        },
+      },
+    },
+    '/reportes/exportar': {
+      get: {
+        summary: 'HU18: Exportar reporte de métricas en formato PDF o Excel',
+        tags: ['Reportes y Métricas'],
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'formato',
+            in: 'query',
+            required: true,
+            schema: { type: 'string', enum: ['pdf', 'excel'] },
+            description: 'Formato de descarga del reporte (pdf o excel)',
+          },
+        ],
+        responses: {
+          200: { description: 'Archivo descargable en formato PDF o Excel.' },
+          403: { description: 'No tenés permisos para acceder a esta sección.' },
+        },
+      },
+    },
   },
 };
 
