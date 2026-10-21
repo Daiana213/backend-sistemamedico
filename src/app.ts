@@ -14,6 +14,7 @@ import obraSocialRoutes from './routes/obraSocialRoutes';
 import documentosRoutes from './routes/documentosRoutes';
 import turnoRoutes from './routes/turnoRoutes';
 import consultaRoutes from './routes/consultaRoutes';
+import reporteRoutes from './routes/reporteRoutes';
 
 const app: Application = express();
 
@@ -67,6 +68,8 @@ apiRouter.use('/obras-sociales', obraSocialRoutes);
 apiRouter.use('/documentos', documentosRoutes);
 apiRouter.use('/turnos', turnoRoutes);
 apiRouter.use('/consultas', consultaRoutes);
+apiRouter.use('/reportes', reporteRoutes);
+apiRouter.use('/metricas', reporteRoutes);
 
 // Healthcheck dentro del prefijo versionado
 apiRouter.get('/health', (req, res) => {
