@@ -7,6 +7,9 @@
     "postinstall": "prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/index.ts",
+    "pacs:start": "powershell -ExecutionPolicy Bypass -File ./scripts/iniciar-pacs.ps1",
+    "pacs:up": "docker compose -f docker-compose.pacs.yml up -d",
+    "pacs:down": "docker compose -f docker-compose.pacs.yml down",
     "build": "npx prisma generate && tsc",
     "start": "node dist/index.js",
     "prisma": "prisma"
