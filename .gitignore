@@ -13,3 +13,5 @@ prisma/seed.ts
 #AGENTS
 AGENTs.md
 documentation.md
+
+agents/

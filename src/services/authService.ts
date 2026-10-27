@@ -76,6 +76,8 @@ function resolverRolesDisponibles(
 
 // Emite access + refresh token para un rol ya resuelto, y persiste el refresh
 async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLogin: boolean) {
+  const esProfesional = rolInfo.rol === 'PROFESIONAL';
+
   const accessToken = signAccessToken({
     idUsuario,
     rolActivo: rolInfo.rol,
@@ -84,14 +86,19 @@ async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLog
     primerLogin,
   });
 
-  const refreshToken = signRefreshToken({ idUsuario });
+  const refreshToken = signRefreshToken({ idUsuario, rolActivo: rolInfo.rol }, esProfesional);
+
+  // Para los profesionales médicos, la sesión y el refresh token no expiran (100 años)
+  const fechaExpiracion = esProfesional
+    ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + REFRESH_EXPIRES_MS);
 
   await prisma.refreshToken.create({
     data: {
       idUsuario,
       tokenHash: hashToken(refreshToken),
       fechaCreacion: new Date(),
-      fechaExpiracion: new Date(Date.now() + REFRESH_EXPIRES_MS),
+      fechaExpiracion,
       revocado: false,
     },
   });
@@ -199,9 +206,12 @@ export async function seleccionarRol({ preSessionToken, rol }: SeleccionarRolInp
 
 export async function refresh(refreshToken: string) {
   let idUsuario: number;
+  let rolActivoSugerido: RolActivo | undefined;
 
   try {
-    ({ idUsuario } = verifyRefreshToken(refreshToken));
+    const payload = verifyRefreshToken(refreshToken);
+    idUsuario = payload.idUsuario;
+    rolActivoSugerido = payload.rolActivo;
   } catch {
     throw new AppError('El refresh token es inválido o expiró', 401);
   }
@@ -226,8 +236,11 @@ export async function refresh(refreshToken: string) {
     throw new AppError('No tenés accesos activos en el sistema.', 403);
   }
 
-  if (rolesDisponibles.length === 1) {
-    const rolInfo = rolesDisponibles[0];
+  const rolInfo =
+    (rolActivoSugerido && rolesDisponibles.find((r) => r.rol === rolActivoSugerido)) ||
+    (rolesDisponibles.length === 1 ? rolesDisponibles[0] : null);
+
+  if (rolInfo) {
     const accessToken = signAccessToken({
       idUsuario: usuario.idUsuario,
       rolActivo: rolInfo.rol,
@@ -235,6 +248,13 @@ export async function refresh(refreshToken: string) {
       permisos: rolInfo.permisos,
       primerLogin: usuario.primerLogin,
     });
+
+    return {
+      accessToken,
+      refreshToken,
+      rolActivo: rolInfo.rol,
+      requiereSeleccionRol: false as const,
+    };
   }
 
   const preSessionToken = signPreSessionToken({ idUsuario: usuario.idUsuario });

@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# Integración PACS (HU21): Orthanc (servidor DICOM / DICOMweb) + OHIF Viewer
+#
+# Uso standalone (solo PACS + visor):
+#   docker compose -f docker-compose.pacs.yml up -d
+#
+# Junto con el backend dockerizado (misma red, el backend llega a http://orthanc:8042):
+#   docker compose -f docker-compose.yml -f docker-compose.pacs.yml up -d
+#
+# URLs locales por defecto:
+#   - OHIF Viewer (visor web para profesionales): http://localhost:3005
+#   - Orthanc Explorer 2 (administración / carga de estudios): http://localhost:8042/ui/app/
+#   - Stone Web Viewer (visor alternativo embebido en Orthanc): http://localhost:8042/stone-webviewer/
+#
+# Ver docs/integracion-pacs.md para el detalle de la arquitectura y el flujo completo.
+# ---------------------------------------------------------------------------
+
+services:
+  orthanc:
+    image: jodogne/orthanc-plugins:latest
+    restart: unless-stopped
+    ports:
+      # HTTP (REST API + DICOMweb + Explorer). Publicado solo en localhost:
+      # el acceso desde el navegador del profesional pasa por el gateway (solo lectura).
+      - "127.0.0.1:${ORTHANC_HTTP_PORT:-8042}:8042"
+      # Puerto DICOM nativo (C-STORE desde modalidades: ecógrafos, tomógrafos, etc.)
+      - "${ORTHANC_DICOM_PORT:-4242}:4242"
+    environment:
+      ORTHANC__NAME: "SistemaMedico-PACS"
+      ORTHANC__DICOM_AET: "SISMEDPACS"
+      # Entorno local/demo: sin autenticación porque el puerto 8042 solo escucha en 127.0.0.1.
+      # En producción habilitar autenticación (ver docs/integracion-pacs.md).
+      ORTHANC__AUTHENTICATION_ENABLED: "false"
+      ORTHANC__REMOTE_ACCESS_ALLOWED: "true"
+      # Plugins
+      DICOM_WEB_PLUGIN_ENABLED: "true"
+      STONE_WEB_VIEWER_PLUGIN_ENABLED: "true"
+      ORTHANC_EXPLORER_2_ENABLED: "true"
+      # Guardado en volumen persistente
+      ORTHANC__STORAGE_DIRECTORY: "/var/lib/orthanc/db"
+      ORTHANC__INDEX_DIRECTORY: "/var/lib/orthanc/db"
+      VERBOSE_ENABLED: "false"
+    volumes:
+      - orthanc_data:/var/lib/orthanc/db
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- --http-user=orthanc --http-password=orthanc http://localhost:8042/system >/dev/null 2>&1 || exit 1" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ohif:
+    image: ohif/app:v3.9.2
+    restart: unless-stopped
+    volumes:
+      - ./pacs/ohif/app-config.js:/usr/share/nginx/html/app-config.js:ro
+    depends_on:
+      - orthanc
+
+  # Gateway nginx: sirve OHIF y expone DICOMweb de Orthanc bajo el MISMO origen
+  # (evita problemas de CORS / COEP) y en modo SOLO LECTURA (GET/HEAD/OPTIONS).
+  pacs-gateway:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${OHIF_PORT:-3005}:80"
+    volumes:
+      - ./pacs/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - ohif
+      - orthanc
+
+volumes:
+  orthanc_data:

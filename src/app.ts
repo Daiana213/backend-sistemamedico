@@ -15,6 +15,7 @@ import documentosRoutes from './routes/documentosRoutes';
 import turnoRoutes from './routes/turnoRoutes';
 import consultaRoutes from './routes/consultaRoutes';
 import reporteRoutes from './routes/reporteRoutes';
+import estudioRoutes from './routes/estudioRoutes';
 
 const app: Application = express();
 
@@ -70,6 +71,7 @@ apiRouter.use('/turnos', turnoRoutes);
 apiRouter.use('/consultas', consultaRoutes);
 apiRouter.use('/reportes', reporteRoutes);
 apiRouter.use('/metricas', reporteRoutes);
+apiRouter.use('/estudios', estudioRoutes);
 
 // Healthcheck dentro del prefijo versionado
 apiRouter.get('/health', (req, res) => {

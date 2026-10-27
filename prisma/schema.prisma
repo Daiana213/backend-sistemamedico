@@ -113,6 +113,7 @@ model Paciente {
   emailAlternativo    String?               @map("email_alternativo") @db.VarChar(150)
   turnos              Turno[]
   antecedentes        AntecedentesMedicos?
+  estudios            EstudioMedico[]
 
   @@map("paciente")
 }
@@ -319,4 +320,19 @@ model CodigoVerificacion {
   utilizado       Boolean  @default(false)
 
   @@map("codigo_verificacion")
+}
+
+model EstudioMedico {
+  idEstudio          Int          @id @default(autoincrement()) @map("id_estudio")
+  idPaciente         Int          @map("id_paciente")
+  nombre             String       @db.VarChar(150)
+  codigo             String       @db.VarChar(150)
+  observacion        String?      @db.Text
+  estado             EstadoActivo @default(ACTIVO)
+  fechaCarga         DateTime     @default(now()) @map("fecha_carga") @db.Timestamp(6)
+  fechaActualizacion DateTime     @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamp(6)
+  paciente           Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([idPaciente, estado], name: "idx_estudio_medico_paciente_estado")
+  @@map("estudio_medico")
 }

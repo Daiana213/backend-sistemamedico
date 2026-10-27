@@ -20,6 +20,7 @@ export interface AccessTokenPayload {
 
 export interface RefreshTokenPayload {
   idUsuario: number;
+  rolActivo?: RolActivo;
   jti?: string;
 }
 
@@ -27,13 +28,22 @@ export interface PreSessionTokenPayload {
   idUsuario: number;
 }
 
-function sign<T extends object>(payload: T, secret: string, expiresIn: string): string {
-  return jwt.sign(payload, secret, { expiresIn } as SignOptions);
+function sign<T extends object>(payload: T, secret: string, expiresIn?: string): string {
+  const options: SignOptions = {};
+  if (expiresIn) {
+    options.expiresIn = expiresIn as SignOptions['expiresIn'];
+  }
+  return jwt.sign(payload, secret, options);
 }
 
 // ---------- Access token ----------
 
 export function signAccessToken(payload: AccessTokenPayload): string {
+  // Para los profesionales de la salud, la sesión no expira
+  // para permitir la atención continua y turnos durante toda la jornada laboral
+  if (payload.rolActivo === 'PROFESIONAL') {
+    return sign(payload, ACCESS_SECRET);
+  }
   return sign(payload, ACCESS_SECRET, ACCESS_EXPIRES_IN);
 }
 
@@ -43,7 +53,10 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 
 // ---------- Refresh token ----------
 
-export function signRefreshToken(payload: RefreshTokenPayload): string {
+export function signRefreshToken(payload: RefreshTokenPayload, esProfesional = false): string {
+  if (esProfesional) {
+    return sign({ ...payload, jti: generarTokenSeguro(16) }, REFRESH_SECRET);
+  }
   return sign({ ...payload, jti: generarTokenSeguro(16) }, REFRESH_SECRET, REFRESH_EXPIRES_IN);
 }
 
