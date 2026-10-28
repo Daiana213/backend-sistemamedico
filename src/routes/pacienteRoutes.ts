@@ -133,8 +133,16 @@ router.get(
 router.get(
   '/:idPaciente/estudios',
   authenticate,
-  authorize('PROFESIONAL'),
+  authorize('PROFESIONAL', 'ADMINISTRATIVO'),
   estudioController.listarEstudiosPacienteProfesional
+);
+
+router.post(
+  '/:idPaciente/estudios',
+  authenticate,
+  authorize('PROFESIONAL', 'ADMINISTRATIVO'),
+  validate(estudioMedicoSchema),
+  estudioController.crearEstudioParaPaciente
 );
 
 export default router;

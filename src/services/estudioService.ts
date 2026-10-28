@@ -1,7 +1,11 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { calcularEdad } from '../utils/edad';
-import { EstudioMedicoInput } from '../validations/estudioValidation';
+import {
+  EstudioMedicoInput,
+  EstudioAdminCrearInput,
+  EstudioActualizarInput,
+} from '../validations/estudioValidation';
 import { buscarEstudioEnPacs } from './pacsService';
 import { generarPdfInformeEstudio } from '../utils/pdfInformeEstudio';
 
@@ -36,6 +40,19 @@ async function asegurarTablaEstudioMedico() {
     // Si falla por permisos DDL restringidos pero la tabla ya existe por migración, continuar
     tablaVerificada = true;
   }
+}
+
+/**
+ * Genera un código de estudio legible y único para estudios clínicos o análisis que no
+ * provienen de un emisor DICOM / StudyInstanceUID.
+ */
+export function generarCodigoEstudio(): string {
+  const fecha = new Date();
+  const anio = fecha.getFullYear();
+  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+  const dia = String(fecha.getDate()).padStart(2, '0');
+  const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `EST-${anio}${mes}${dia}-${randomHex}`;
 }
 
 /**
@@ -81,6 +98,7 @@ function mapearEstudioRespuesta(estudio: {
     nombre: estudio.nombre,
     codigo: estudio.codigo,
     observacion: estudio.observacion,
+    estado: estudio.estado,
     fechaCarga: estudio.fechaCarga,
     fechaActualizacion: estudio.fechaActualizacion,
     integracionPacs: construirMetadatosPacs(estudio.codigo),
@@ -97,6 +115,37 @@ async function obtenerPacientePorUsuario(idUsuario: number) {
   }
 
   return paciente;
+}
+
+/**
+ * Verifica que el profesional autenticado tenga vínculo (al menos un turno asignado)
+ * con el paciente solicitado (HU8 Escenario 3 / HU21 Escenario 3).
+ */
+async function verificarVinculoProfesionalPaciente(
+  idUsuarioProfesional: number,
+  idPaciente: number
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idUsuario: idUsuarioProfesional },
+  });
+
+  if (!profesional) {
+    throw new AppError('Perfil de profesional no encontrado.', 404);
+  }
+
+  const vinculoTurno = await prisma.turno.findFirst({
+    where: {
+      idProfesional: profesional.idProfesional,
+      idPaciente,
+    },
+    select: { idTurno: true },
+  });
+
+  if (!vinculoTurno) {
+    throw new AppError('No tenés permisos para interactuar con la información de este paciente.', 403);
+  }
+
+  return profesional;
 }
 
 /**
@@ -151,13 +200,14 @@ export async function crearEstudio(
 ) {
   await asegurarTablaEstudioMedico();
   const paciente = await obtenerPacientePorUsuario(idUsuario);
+  const codigoFinal = datos.codigo?.trim() || generarCodigoEstudio();
 
   const nuevoEstudio = await prisma.$transaction(async (tx) => {
     const creado = await tx.estudioMedico.create({
       data: {
         idPaciente: paciente.idPaciente,
-        nombre: datos.nombre,
-        codigo: datos.codigo,
+        nombre: datos.nombre.trim(),
+        codigo: codigoFinal,
         observacion: datos.observacion ?? null,
         estado: 'ACTIVO',
       },
@@ -167,7 +217,7 @@ export async function crearEstudio(
       data: {
         idUsuario,
         fechaHora: new Date(),
-        accion: 'ALTA_ESTUDIO_MEDICO',
+        accion: 'ALTA_ESTUDIO_MEDICO_PACIENTE',
         tablaAfectada: 'estudio_medico',
         idRegistroAfectado: creado.idEstudio,
         datosNuevos: JSON.stringify({
@@ -178,7 +228,7 @@ export async function crearEstudio(
           observacion: creado.observacion,
         }),
         ip,
-        descripcion: `Alta de estudio médico "${creado.nombre}" (código: ${creado.codigo}).`,
+        descripcion: `Alta de estudio médico "${creado.nombre}" por el paciente (código: ${creado.codigo}).`,
       },
     });
 
@@ -192,60 +242,336 @@ export async function crearEstudio(
 }
 
 /**
- * HU21 - Escenario 3: Edición de un estudio médico por parte del paciente propietario.
+ * Carga de estudio médico directamente para un paciente específico.
+ * Utilizado tanto por Especialistas durante la consulta médica como por el área de Administración.
  */
-export async function editarEstudio(
-  idUsuario: number,
-  idEstudio: number,
-  datos: EstudioMedicoInput,
+export async function crearEstudioParaPaciente(
+  idUsuarioCreador: number,
+  rolCreador: string,
+  idPaciente: number,
+  datos: {
+    nombre: string;
+    codigo?: string | null;
+    observacion?: string | null;
+  },
   ip?: string
 ) {
   await asegurarTablaEstudioMedico();
-  const paciente = await obtenerPacientePorUsuario(idUsuario);
 
-  const estudioExistente = await prisma.estudioMedico.findFirst({
-    where: {
-      idEstudio,
-      idPaciente: paciente.idPaciente,
-      estado: 'ACTIVO',
+  const paciente = await prisma.paciente.findUnique({
+    where: { idPaciente },
+    include: { usuario: true },
+  });
+
+  if (!paciente) {
+    throw new AppError('Paciente no encontrado.', 404);
+  }
+
+  if (rolCreador === 'PROFESIONAL') {
+    await verificarVinculoProfesionalPaciente(idUsuarioCreador, idPaciente);
+  }
+
+  const codigoFinal = datos.codigo?.trim() || generarCodigoEstudio();
+
+  const nuevoEstudio = await prisma.$transaction(async (tx) => {
+    const creado = await tx.estudioMedico.create({
+      data: {
+        idPaciente,
+        nombre: datos.nombre.trim(),
+        codigo: codigoFinal,
+        observacion: datos.observacion?.trim() ?? null,
+        estado: 'ACTIVO',
+      },
+    });
+
+    const accionAuditoria =
+      rolCreador === 'ADMINISTRATIVO'
+        ? 'ALTA_ESTUDIO_MEDICO_ADMIN'
+        : 'ALTA_ESTUDIO_MEDICO_PROFESIONAL';
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idUsuarioCreador,
+        fechaHora: new Date(),
+        accion: accionAuditoria,
+        tablaAfectada: 'estudio_medico',
+        idRegistroAfectado: creado.idEstudio,
+        datosNuevos: JSON.stringify({
+          idEstudio: creado.idEstudio,
+          idPaciente: creado.idPaciente,
+          nombre: creado.nombre,
+          codigo: creado.codigo,
+          observacion: creado.observacion,
+          rolCreador,
+        }),
+        ip,
+        descripcion: `Alta de estudio médico "${creado.nombre}" para el paciente ${paciente.usuario.nombre} ${paciente.usuario.apellido} (código: ${creado.codigo}).`,
+      },
+    });
+
+    return creado;
+  });
+
+  return {
+    mensaje: 'Estudio médico registrado correctamente.',
+    estudio: mapearEstudioRespuesta(nuevoEstudio),
+  };
+}
+
+/**
+ * Alta de estudio desde el módulo de Gestión de Estudios Médicos por parte de Administración.
+ * Admite buscar el paciente por idPaciente o por dniPaciente.
+ */
+export async function crearEstudioAdmin(
+  idUsuarioAdmin: number,
+  datos: EstudioAdminCrearInput,
+  ip?: string
+) {
+  let idPaciente = datos.idPaciente;
+
+  if (!idPaciente && datos.dniPaciente) {
+    const pacienteEncontrado = await prisma.paciente.findFirst({
+      where: {
+        usuario: {
+          dni: datos.dniPaciente.trim(),
+        },
+      },
+      select: { idPaciente: true },
+    });
+
+    if (!pacienteEncontrado) {
+      throw new AppError('No se encontró ningún paciente con el DNI proporcionado.', 404);
+    }
+    idPaciente = pacienteEncontrado.idPaciente;
+  }
+
+  if (!idPaciente) {
+    throw new AppError('Debe especificar un paciente válido.', 400);
+  }
+
+  return crearEstudioParaPaciente(
+    idUsuarioAdmin,
+    'ADMINISTRATIVO',
+    idPaciente,
+    {
+      nombre: datos.nombre,
+      codigo: datos.codigo,
+      observacion: datos.observacion,
     },
+    ip
+  );
+}
+
+/**
+ * Listado integral de estudios médicos para el panel de Gestión de Administración.
+ * Soporta filtros por búsqueda textual (paciente o estudio), estado y paciente específico.
+ */
+export async function listarTodosLosEstudiosAdmin(filtros: {
+  q?: string;
+  estado?: string;
+  idPaciente?: number;
+}) {
+  await asegurarTablaEstudioMedico();
+  const { q, estado, idPaciente } = filtros;
+
+  const whereClause: any = {};
+
+  if (estado && estado !== 'TODOS') {
+    whereClause.estado = estado;
+  }
+
+  if (idPaciente) {
+    whereClause.idPaciente = idPaciente;
+  }
+
+  if (q && q.trim().length > 0) {
+    const termino = q.trim();
+    whereClause.OR = [
+      { nombre: { contains: termino, mode: 'insensitive' } },
+      { codigo: { contains: termino, mode: 'insensitive' } },
+      {
+        paciente: {
+          usuario: {
+            OR: [
+              { nombre: { contains: termino, mode: 'insensitive' } },
+              { apellido: { contains: termino, mode: 'insensitive' } },
+              { dni: { contains: termino, mode: 'insensitive' } },
+            ],
+          },
+        },
+      },
+    ];
+  }
+
+  const estudios = await prisma.estudioMedico.findMany({
+    where: whereClause,
+    include: {
+      paciente: {
+        include: {
+          usuario: {
+            select: {
+              nombre: true,
+              apellido: true,
+              dni: true,
+              email: true,
+              telefono: true,
+            },
+          },
+          plan: {
+            include: {
+              obraSocial: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: {
+      fechaCarga: 'desc',
+    },
+  });
+
+  return estudios.map((est) => ({
+    idEstudio: est.idEstudio,
+    idPaciente: est.idPaciente,
+    nombre: est.nombre,
+    codigo: est.codigo,
+    observacion: est.observacion,
+    estado: est.estado,
+    fechaCarga: est.fechaCarga,
+    fechaActualizacion: est.fechaActualizacion,
+    paciente: {
+      idPaciente: est.paciente.idPaciente,
+      nombreCompleto: `${est.paciente.usuario.nombre} ${est.paciente.usuario.apellido}`,
+      dni: est.paciente.usuario.dni,
+      email: est.paciente.usuario.email,
+      telefono: est.paciente.usuario.telefono,
+      obraSocial: est.paciente.plan
+        ? `${est.paciente.plan.obraSocial.nombre} - ${est.paciente.plan.nombre}`
+        : 'Particular',
+    },
+    integracionPacs: construirMetadatosPacs(est.codigo),
+  }));
+}
+
+/**
+ * Búsqueda predictiva de pacientes para asignación rápida de estudios en administración.
+ */
+export async function buscarPacientesParaEstudio(q?: string) {
+  const termino = q?.trim() || '';
+  const pacientes = await prisma.paciente.findMany({
+    where: termino
+      ? {
+          OR: [
+            { usuario: { dni: { contains: termino, mode: 'insensitive' } } },
+            { usuario: { nombre: { contains: termino, mode: 'insensitive' } } },
+            { usuario: { apellido: { contains: termino, mode: 'insensitive' } } },
+          ],
+        }
+      : undefined,
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+          dni: true,
+          email: true,
+          telefono: true,
+        },
+      },
+      plan: {
+        include: {
+          obraSocial: true,
+        },
+      },
+    },
+    take: 20,
+    orderBy: {
+      usuario: {
+        apellido: 'asc',
+      },
+    },
+  });
+
+  return pacientes.map((p) => ({
+    idPaciente: p.idPaciente,
+    dni: p.usuario.dni,
+    nombre: p.usuario.nombre,
+    apellido: p.usuario.apellido,
+    nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
+    email: p.usuario.email,
+    telefono: p.usuario.telefono,
+    planObraSocial: p.plan
+      ? `${p.plan.obraSocial.nombre} - ${p.plan.nombre}`
+      : 'Particular',
+  }));
+}
+
+/**
+ * Modificación genérica de estudio médico con control de permisos según rol (Administrativo, Profesional o Paciente).
+ */
+export async function actualizarEstudioGenerico(
+  idUsuarioEditor: number,
+  rolEditor: string,
+  idEstudio: number,
+  datos: EstudioActualizarInput,
+  ip?: string
+) {
+  await asegurarTablaEstudioMedico();
+
+  const estudioExistente = await prisma.estudioMedico.findUnique({
+    where: { idEstudio },
   });
 
   if (!estudioExistente) {
     throw new AppError('Estudio médico no encontrado.', 404);
   }
 
+  if (rolEditor === 'PACIENTE') {
+    const paciente = await obtenerPacientePorUsuario(idUsuarioEditor);
+    if (estudioExistente.idPaciente !== paciente.idPaciente) {
+      throw new AppError('No tenés permisos para modificar este estudio.', 403);
+    }
+  } else if (rolEditor === 'PROFESIONAL') {
+    await verificarVinculoProfesionalPaciente(idUsuarioEditor, estudioExistente.idPaciente);
+  } else if (rolEditor !== 'ADMINISTRATIVO') {
+    throw new AppError('Rol no autorizado para modificar estudios médicos.', 403);
+  }
+
   const datosAnteriores = {
     nombre: estudioExistente.nombre,
     codigo: estudioExistente.codigo,
     observacion: estudioExistente.observacion,
+    estado: estudioExistente.estado,
   };
+
+  const datosActualizacion: any = {};
+  if (datos.nombre !== undefined) datosActualizacion.nombre = datos.nombre.trim();
+  if (datos.codigo !== undefined) datosActualizacion.codigo = datos.codigo.trim();
+  if (datos.observacion !== undefined) datosActualizacion.observacion = datos.observacion?.trim() ?? null;
+  if (rolEditor === 'ADMINISTRATIVO' && datos.estado !== undefined) {
+    datosActualizacion.estado = datos.estado;
+  }
 
   const actualizado = await prisma.$transaction(async (tx) => {
     const est = await tx.estudioMedico.update({
       where: { idEstudio },
-      data: {
-        nombre: datos.nombre,
-        codigo: datos.codigo,
-        observacion: datos.observacion ?? null,
-      },
+      data: datosActualizacion,
     });
 
     await tx.auditoria.create({
       data: {
-        idUsuario,
+        idUsuario: idUsuarioEditor,
         fechaHora: new Date(),
         accion: 'MODIFICACION_ESTUDIO_MEDICO',
         tablaAfectada: 'estudio_medico',
         idRegistroAfectado: idEstudio,
         datosAnteriores: JSON.stringify(datosAnteriores),
         datosNuevos: JSON.stringify({
-          nombre: est.nombre,
-          codigo: est.codigo,
-          observacion: est.observacion,
+          ...datosActualizacion,
+          rolEditor,
         }),
         ip,
-        descripcion: `Modificación de estudio médico "${est.nombre}" (código: ${est.codigo}).`,
+        descripcion: `Modificación de estudio médico ID ${idEstudio} por usuario con rol ${rolEditor}.`,
       },
     });
 
@@ -253,40 +579,45 @@ export async function editarEstudio(
   });
 
   return {
-    mensaje: 'Estudio actualizado correctamente.',
+    mensaje: 'Estudio médico actualizado correctamente.',
     estudio: mapearEstudioRespuesta(actualizado),
   };
 }
 
 /**
- * HU21 - Escenario 3: Eliminación (baja lógica) de un estudio médico por parte del paciente propietario.
+ * Eliminación o baja lógica de estudio médico.
  */
-export async function eliminarEstudio(
+export async function eliminarEstudioGenerico(
   idUsuario: number,
+  rol: string,
   idEstudio: number,
   ip?: string
 ) {
   await asegurarTablaEstudioMedico();
-  const paciente = await obtenerPacientePorUsuario(idUsuario);
 
-  const estudioExistente = await prisma.estudioMedico.findFirst({
-    where: {
-      idEstudio,
-      idPaciente: paciente.idPaciente,
-      estado: 'ACTIVO',
-    },
+  const estudioExistente = await prisma.estudioMedico.findUnique({
+    where: { idEstudio },
   });
 
   if (!estudioExistente) {
     throw new AppError('Estudio médico no encontrado.', 404);
   }
 
+  if (rol === 'PACIENTE') {
+    const paciente = await obtenerPacientePorUsuario(idUsuario);
+    if (estudioExistente.idPaciente !== paciente.idPaciente) {
+      throw new AppError('No tenés permisos para eliminar este estudio.', 403);
+    }
+  } else if (rol === 'PROFESIONAL') {
+    await verificarVinculoProfesionalPaciente(idUsuario, estudioExistente.idPaciente);
+  } else if (rol !== 'ADMINISTRATIVO') {
+    throw new AppError('Rol no autorizado para eliminar estudios médicos.', 403);
+  }
+
   await prisma.$transaction(async (tx) => {
     await tx.estudioMedico.update({
       where: { idEstudio },
-      data: {
-        estado: 'INACTIVO',
-      },
+      data: { estado: 'INACTIVO' },
     });
 
     await tx.auditoria.create({
@@ -299,50 +630,89 @@ export async function eliminarEstudio(
         datosAnteriores: JSON.stringify({
           nombre: estudioExistente.nombre,
           codigo: estudioExistente.codigo,
-          observacion: estudioExistente.observacion,
           estado: estudioExistente.estado,
         }),
-        datosNuevos: JSON.stringify({ estado: 'INACTIVO' }),
+        datosNuevos: JSON.stringify({ estado: 'INACTIVO', rol }),
         ip,
-        descripcion: `Eliminación de estudio médico "${estudioExistente.nombre}" (código: ${estudioExistente.codigo}).`,
+        descripcion: `Baja lógica de estudio médico ID ${idEstudio} por usuario con rol ${rol}.`,
       },
     });
   });
 
   return {
-    mensaje: 'Estudio eliminado correctamente.',
+    mensaje: 'Estudio médico dado de baja correctamente.',
   };
 }
 
 /**
- * Verifica que el profesional autenticado tenga vínculo (al menos un turno asignado)
- * con el paciente solicitado (HU8 Escenario 3 / HU21 Escenario 3).
+ * Cambio de estado (activar / inactivar) para panel administrativo.
  */
-async function verificarVinculoProfesionalPaciente(
-  idUsuarioProfesional: number,
-  idPaciente: number
+export async function cambiarEstadoEstudioAdmin(
+  idUsuarioAdmin: number,
+  idEstudio: number,
+  nuevoEstado: 'ACTIVO' | 'INACTIVO',
+  ip?: string
 ) {
-  const profesional = await prisma.profesional.findUnique({
-    where: { idUsuario: idUsuarioProfesional },
+  await asegurarTablaEstudioMedico();
+
+  const estudioExistente = await prisma.estudioMedico.findUnique({
+    where: { idEstudio },
   });
 
-  if (!profesional) {
-    throw new AppError('Perfil de profesional no encontrado.', 404);
+  if (!estudioExistente) {
+    throw new AppError('Estudio médico no encontrado.', 404);
   }
 
-  const vinculoTurno = await prisma.turno.findFirst({
-    where: {
-      idProfesional: profesional.idProfesional,
-      idPaciente,
-    },
-    select: { idTurno: true },
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const est = await tx.estudioMedico.update({
+      where: { idEstudio },
+      data: { estado: nuevoEstado },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idUsuarioAdmin,
+        fechaHora: new Date(),
+        accion: 'CAMBIO_ESTADO_ESTUDIO_MEDICO',
+        tablaAfectada: 'estudio_medico',
+        idRegistroAfectado: idEstudio,
+        datosAnteriores: JSON.stringify({ estado: estudioExistente.estado }),
+        datosNuevos: JSON.stringify({ estado: nuevoEstado }),
+        ip,
+        descripcion: `Cambio de estado de estudio médico ID ${idEstudio} a ${nuevoEstado} por administración.`,
+      },
+    });
+
+    return est;
   });
 
-  if (!vinculoTurno) {
-    throw new AppError('No tenés permisos para ver la información de este paciente', 403);
-  }
+  return {
+    mensaje: `Estudio médico marcado como ${nuevoEstado} con éxito.`,
+    estudio: mapearEstudioRespuesta(actualizado),
+  };
+}
 
-  return profesional;
+/**
+ * HU21 - Escenario 3: Edición de un estudio médico por parte del paciente propietario.
+ */
+export async function editarEstudio(
+  idUsuario: number,
+  idEstudio: number,
+  datos: EstudioMedicoInput,
+  ip?: string
+) {
+  return actualizarEstudioGenerico(idUsuario, 'PACIENTE', idEstudio, datos, ip);
+}
+
+/**
+ * HU21 - Escenario 3: Eliminación (baja lógica) de un estudio médico por parte del paciente propietario.
+ */
+export async function eliminarEstudio(
+  idUsuario: number,
+  idEstudio: number,
+  ip?: string
+) {
+  return eliminarEstudioGenerico(idUsuario, 'PACIENTE', idEstudio, ip);
 }
 
 /**
@@ -389,7 +759,7 @@ export async function listarEstudiosDePacienteParaProfesional(
       nombreCompleto: `${paciente.usuario.nombre} ${paciente.usuario.apellido}`,
       dni: paciente.usuario.dni,
     },
-    soloLectura: true,
+    soloLectura: false,
     totalEstudios: estudios.length,
     estudios: estudios.map(mapearEstudioRespuesta),
   };
@@ -514,14 +884,13 @@ export async function obtenerHistoriaClinicaPaciente(
       consultasPrevias.length > 0 ? null : 'Este paciente no registra consultas previas',
     estudios: paciente.estudios.map(mapearEstudioRespuesta),
     mensajeEstudios:
-      paciente.estudios.length > 0 ? null : 'El paciente no cargó estudios médicos',
+      paciente.estudios.length > 0 ? null : 'El paciente no registra estudios médicos',
   };
 }
 
-
 /**
  * Consulta el estado y metadatos del estudio en el PACS Orthanc a partir del idEstudio registrado.
- * Puede ser invocado por el paciente propietario o por un profesional con vínculo.
+ * Puede ser invocado por el paciente propietario, por un profesional con vínculo o por administración.
  */
 export async function consultarEstadoEstudioEnPacs(
   idUsuario: number,
@@ -551,10 +920,10 @@ export async function consultarEstadoEstudioEnPacs(
       await verificarVinculoProfesionalPaciente(idUsuario, estudio.idPaciente);
     }
   } else {
+    // ADMINISTRATIVO u otros roles autorizados
     estudio = await prisma.estudioMedico.findFirst({
       where: {
         idEstudio,
-        estado: 'ACTIVO',
       },
     });
   }
@@ -573,7 +942,7 @@ export async function consultarEstadoEstudioEnPacs(
 
 /**
  * HU21: Genera y devuelve el informe médico oficial en PDF para un estudio registrado.
- * Puede ser consultado por el paciente propietario o por un profesional con vínculo (o administrativo).
+ * Puede ser consultado por el paciente propietario, un profesional con vínculo o administración.
  */
 export async function generarInformePdfEstudio(
   idUsuario: number,
@@ -585,7 +954,6 @@ export async function generarInformePdfEstudio(
   const estudio = await prisma.estudioMedico.findFirst({
     where: {
       idEstudio,
-      estado: 'ACTIVO',
     },
     include: {
       paciente: {
@@ -624,4 +992,3 @@ export async function generarInformePdfEstudio(
     paciente: estudio.paciente,
   });
 }
-
