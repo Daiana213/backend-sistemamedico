@@ -786,7 +786,8 @@ export async function reprogramarTurnoAdmin(
 export async function registrarRecepcionTurno(
   idTurno: number,
   usuarioAutenticado: AccessTokenPayload,
-  ip?: string
+  ip?: string,
+  datosAdicionales?: { numeroAutorizacion?: string; tokenDigital?: string }
 ) {
   if (usuarioAutenticado.rolActivo !== 'ADMINISTRATIVO') {
     throw new AppError(
@@ -817,13 +818,21 @@ export async function registrarRecepcionTurno(
   const nuevoEstado = turno.estado === 'SOLICITADO' ? 'CONFIRMADO' : turno.estado;
 
   const actualizado = await prisma.$transaction(async (tx) => {
+    const dataUpdate: any = {
+      presente: true,
+      fechaLlegada: new Date(),
+      estado: nuevoEstado,
+    };
+    if (datosAdicionales?.numeroAutorizacion) {
+      dataUpdate.numeroAutorizacion = datosAdicionales.numeroAutorizacion.trim();
+    }
+    if (datosAdicionales?.tokenDigital) {
+      dataUpdate.tokenDigital = datosAdicionales.tokenDigital.trim();
+    }
+
     const t = await tx.turno.update({
       where: { idTurno },
-      data: {
-        presente: true,
-        fechaLlegada: new Date(),
-        estado: nuevoEstado,
-      },
+      data: dataUpdate,
       include: {
         paciente: { include: { usuario: true } },
         profesional: { include: { usuario: true } },

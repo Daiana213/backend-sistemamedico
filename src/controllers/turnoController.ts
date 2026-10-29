@@ -131,7 +131,7 @@ export const registrarRecepcion = asyncHandler(async (req: Request, res: Respons
     throw new AppError('ID de turno inválido', 400);
   }
 
-  const resultado = await turnoService.registrarRecepcionTurno(idTurno, req.usuario, req.ip);
+  const resultado = await turnoService.registrarRecepcionTurno(idTurno, req.usuario, req.ip, req.body);
   res.status(200).json(resultado);
 });
 

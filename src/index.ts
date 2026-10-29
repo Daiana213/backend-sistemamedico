@@ -21,10 +21,10 @@ if (!process.env.VERCEL) {
 
   server.on('error', (err: any) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`\n❌ Error: El puerto ${PORT} ya está en uso por otro proceso.`);
+      console.error(`\n[ERROR] El puerto ${PORT} ya esta en uso por otro proceso.`);
       console.error(`   Cierra el proceso que ocupa el puerto ${PORT} o define otro PORT en .env\n`);
     } else {
-      console.error('\n❌ Error en el servidor HTTP:', err);
+      console.error('\n[ERROR] Error en el servidor HTTP:', err);
     }
     process.exit(1);
   });

@@ -1,12 +1,11 @@
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
-import { ObraSocialInput, PlanInput } from '../validations/obraSocialValidation';
+import {
+  ObraSocialInput,
+  PlanInput,
+  ValidarElegibilidadInput,
+} from '../validations/obraSocialValidation';
 
-/**
- * Lista las obras sociales.
- * Por defecto devuelve solo las ACTIVAS (para selectores de pacientes y turnos - Escenario 1 y 5).
- * Si incluirInactivas = true, devuelve todas junto con sus planes para gestión administrativa.
- */
 export async function listarObrasSocialesActivas(incluirInactivas = false) {
   const whereClause = incluirInactivas ? {} : { estado: 'ACTIVO' as const };
 
@@ -17,6 +16,10 @@ export async function listarObrasSocialesActivas(incluirInactivas = false) {
       idObraSocial: true,
       nombre: true,
       descripcion: true,
+      codigoRnos: true,
+      cuit: true,
+      razonSocial: true,
+      tipo: true,
       estado: true,
       planes: {
         where: incluirInactivas ? {} : { estado: 'ACTIVO' },
@@ -26,6 +29,9 @@ export async function listarObrasSocialesActivas(incluirInactivas = false) {
           idObraSocial: true,
           nombre: true,
           descripcion: true,
+          requiereCopago: true,
+          montoCopago: true,
+          requiereAutorizacionPrevia: true,
           estado: true,
         },
       },
@@ -33,9 +39,6 @@ export async function listarObrasSocialesActivas(incluirInactivas = false) {
   });
 }
 
-/**
- * Obtiene una obra social por su ID incluyendo sus planes.
- */
 export async function obtenerObraSocialPorId(idObraSocial: number, incluirInactivos = false) {
   const obraSocial = await prisma.obraSocial.findUnique({
     where: { idObraSocial },
@@ -43,6 +46,10 @@ export async function obtenerObraSocialPorId(idObraSocial: number, incluirInacti
       idObraSocial: true,
       nombre: true,
       descripcion: true,
+      codigoRnos: true,
+      cuit: true,
+      razonSocial: true,
+      tipo: true,
       estado: true,
       planes: {
         where: incluirInactivos ? {} : { estado: 'ACTIVO' },
@@ -52,6 +59,9 @@ export async function obtenerObraSocialPorId(idObraSocial: number, incluirInacti
           idObraSocial: true,
           nombre: true,
           descripcion: true,
+          requiereCopago: true,
+          montoCopago: true,
+          requiereAutorizacionPrevia: true,
           estado: true,
         },
       },
@@ -65,10 +75,6 @@ export async function obtenerObraSocialPorId(idObraSocial: number, incluirInacti
   return obraSocial;
 }
 
-/**
- * Lista los planes de una obra social.
- * Por defecto devuelve solo los planes ACTIVOS de una obra social (Escenario 2 y 5).
- */
 export async function listarPlanesActivosPorObraSocial(
   idObraSocial: number,
   incluirInactivos = false
@@ -97,23 +103,25 @@ export async function listarPlanesActivosPorObraSocial(
       idObraSocial: true,
       nombre: true,
       descripcion: true,
+      requiereCopago: true,
+      montoCopago: true,
+      requiereAutorizacionPrevia: true,
       estado: true,
     },
   });
 }
 
-/**
- * HU20 - Escenario 1 y 3: Alta de obra social con validación de duplicados y log de auditoría.
- */
 export async function crearObraSocial(
   datos: ObraSocialInput,
   idAdministrativo: number,
   ip?: string
 ) {
+  const nombreLimpio = datos.nombre.trim();
+
   const existente = await prisma.obraSocial.findFirst({
     where: {
       nombre: {
-        equals: datos.nombre,
+        equals: nombreLimpio,
         mode: 'insensitive',
       },
     },
@@ -125,11 +133,26 @@ export async function crearObraSocial(
     });
   }
 
+  if (datos.cuit) {
+    const cuitExistente = await prisma.obraSocial.findFirst({
+      where: { cuit: datos.cuit.trim() },
+    });
+    if (cuitExistente) {
+      throw new AppError('Ya existe una obra social registrada con ese CUIT fiscal.', 409, {
+        cuit: 'Ya existe una obra social registrada con ese CUIT fiscal.',
+      });
+    }
+  }
+
   const nuevaObraSocial = await prisma.$transaction(async (tx) => {
     const creada = await tx.obraSocial.create({
       data: {
-        nombre: datos.nombre,
-        descripcion: datos.descripcion ?? null,
+        nombre: nombreLimpio,
+        descripcion: datos.descripcion?.trim() ?? null,
+        codigoRnos: datos.codigoRnos?.trim() ?? null,
+        cuit: datos.cuit?.trim() ?? null,
+        razonSocial: datos.razonSocial?.trim() ?? null,
+        tipo: datos.tipo ?? 'OBRA_SOCIAL_SINDICAL',
         estado: 'ACTIVO',
       },
     });
@@ -143,7 +166,7 @@ export async function crearObraSocial(
         idRegistroAfectado: creada.idObraSocial,
         datosNuevos: JSON.stringify(creada),
         ip,
-        descripcion: `Alta de obra social ${creada.nombre}.`,
+        descripcion: `Alta de obra social ${creada.nombre} (Tipo: ${creada.tipo}).`,
       },
     });
 
@@ -156,9 +179,6 @@ export async function crearObraSocial(
   };
 }
 
-/**
- * HU20 - Escenario 3 y 4: Edición de obra social con actualización automática en registros vinculados y log de auditoría.
- */
 export async function editarObraSocial(
   idObraSocial: number,
   datos: ObraSocialInput,
@@ -173,10 +193,12 @@ export async function editarObraSocial(
     throw new AppError('Obra social no encontrada.', 404);
   }
 
+  const nombreLimpio = datos.nombre.trim();
+
   const duplicada = await prisma.obraSocial.findFirst({
     where: {
       nombre: {
-        equals: datos.nombre,
+        equals: nombreLimpio,
         mode: 'insensitive',
       },
       idObraSocial: {
@@ -191,19 +213,43 @@ export async function editarObraSocial(
     });
   }
 
+  if (datos.cuit) {
+    const cuitDuplicado = await prisma.obraSocial.findFirst({
+      where: {
+        cuit: datos.cuit.trim(),
+        idObraSocial: { not: idObraSocial },
+      },
+    });
+    if (cuitDuplicado) {
+      throw new AppError('Ya existe otra obra social registrada con ese CUIT.', 409, {
+        cuit: 'Ya existe otra obra social registrada con ese CUIT.',
+      });
+    }
+  }
+
   const datosAnteriores = {
     nombre: obraSocial.nombre,
     descripcion: obraSocial.descripcion,
+    codigoRnos: obraSocial.codigoRnos,
+    cuit: obraSocial.cuit,
+    razonSocial: obraSocial.razonSocial,
+    tipo: obraSocial.tipo,
     estado: obraSocial.estado,
   };
+
+  const datosActualizacion: any = {
+    nombre: nombreLimpio,
+  };
+  if (datos.descripcion !== undefined) datosActualizacion.descripcion = datos.descripcion?.trim() ?? null;
+  if (datos.codigoRnos !== undefined) datosActualizacion.codigoRnos = datos.codigoRnos?.trim() ?? null;
+  if (datos.cuit !== undefined) datosActualizacion.cuit = datos.cuit?.trim() ?? null;
+  if (datos.razonSocial !== undefined) datosActualizacion.razonSocial = datos.razonSocial?.trim() ?? null;
+  if (datos.tipo !== undefined) datosActualizacion.tipo = datos.tipo;
 
   const actualizada = await prisma.$transaction(async (tx) => {
     const os = await tx.obraSocial.update({
       where: { idObraSocial },
-      data: {
-        nombre: datos.nombre,
-        ...(datos.descripcion !== undefined ? { descripcion: datos.descripcion } : {}),
-      },
+      data: datosActualizacion,
     });
 
     await tx.auditoria.create({
@@ -214,13 +260,9 @@ export async function editarObraSocial(
         tablaAfectada: 'obra_social',
         idRegistroAfectado: idObraSocial,
         datosAnteriores: JSON.stringify(datosAnteriores),
-        datosNuevos: JSON.stringify({
-          nombre: os.nombre,
-          descripcion: os.descripcion,
-          estado: os.estado,
-        }),
+        datosNuevos: JSON.stringify(os),
         ip,
-        descripcion: `Modificación de obra social ${datosAnteriores.nombre} a ${os.nombre}.`,
+        descripcion: `Modificacion de obra social ${datosAnteriores.nombre} a ${os.nombre}.`,
       },
     });
 
@@ -233,10 +275,6 @@ export async function editarObraSocial(
   };
 }
 
-/**
- * HU20 - Escenario 5: Baja lógica de obra social.
- * Pasa a INACTIVO y deja de aparecer en selectores sin afectar pacientes ni registros históricos.
- */
 export async function darDeBajaObraSocial(
   idObraSocial: number,
   idAdministrativo: number,
@@ -244,6 +282,11 @@ export async function darDeBajaObraSocial(
 ) {
   const obraSocial = await prisma.obraSocial.findUnique({
     where: { idObraSocial },
+    include: {
+      planes: {
+        select: { idPlan: true },
+      },
+    },
   });
 
   if (!obraSocial) {
@@ -256,6 +299,12 @@ export async function darDeBajaObraSocial(
       data: {
         estado: 'INACTIVO',
       },
+    });
+
+    // Baja en cascada logica a sus planes
+    await tx.plan.updateMany({
+      where: { idObraSocial },
+      data: { estado: 'INACTIVO' },
     });
 
     await tx.auditoria.create({
@@ -274,7 +323,7 @@ export async function darDeBajaObraSocial(
           estado: 'INACTIVO',
         }),
         ip,
-        descripcion: `Baja lógica de obra social ${obraSocial.nombre}.`,
+        descripcion: `Baja logica de obra social ${obraSocial.nombre} y sus planes asociados.`,
       },
     });
 
@@ -287,9 +336,50 @@ export async function darDeBajaObraSocial(
   };
 }
 
-/**
- * HU20 - Escenario 2 y 3: Alta de un plan asociado a una obra social activa con log de auditoría.
- */
+export async function reactivarObraSocial(
+  idObraSocial: number,
+  idAdministrativo: number,
+  ip?: string
+) {
+  const obraSocial = await prisma.obraSocial.findUnique({
+    where: { idObraSocial },
+  });
+
+  if (!obraSocial) {
+    throw new AppError('Obra social no encontrada.', 404);
+  }
+
+  const reactivada = await prisma.$transaction(async (tx) => {
+    const os = await tx.obraSocial.update({
+      where: { idObraSocial },
+      data: {
+        estado: 'ACTIVO',
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idAdministrativo,
+        fechaHora: new Date(),
+        accion: 'REACTIVACION_OBRA_SOCIAL',
+        tablaAfectada: 'obra_social',
+        idRegistroAfectado: idObraSocial,
+        datosAnteriores: JSON.stringify({ estado: obraSocial.estado }),
+        datosNuevos: JSON.stringify({ estado: 'ACTIVO' }),
+        ip,
+        descripcion: `Reactivacion de obra social ${os.nombre}.`,
+      },
+    });
+
+    return os;
+  });
+
+  return {
+    mensaje: 'La obra social ha sido reactivada correctamente.',
+    obraSocial: reactivada,
+  };
+}
+
 export async function crearPlanObraSocial(
   idObraSocial: number,
   datos: PlanInput,
@@ -308,11 +398,13 @@ export async function crearPlanObraSocial(
     throw new AppError('No se puede agregar un plan a una obra social inactiva.', 400);
   }
 
+  const nombreLimpio = datos.nombre.trim();
+
   const planDuplicado = await prisma.plan.findFirst({
     where: {
       idObraSocial,
       nombre: {
-        equals: datos.nombre,
+        equals: nombreLimpio,
         mode: 'insensitive',
       },
     },
@@ -328,8 +420,11 @@ export async function crearPlanObraSocial(
     const plan = await tx.plan.create({
       data: {
         idObraSocial,
-        nombre: datos.nombre,
-        descripcion: datos.descripcion ?? null,
+        nombre: nombreLimpio,
+        descripcion: datos.descripcion?.trim() ?? null,
+        requiereCopago: datos.requiereCopago ?? false,
+        montoCopago: datos.montoCopago !== undefined && datos.montoCopago !== null ? datos.montoCopago : null,
+        requiereAutorizacionPrevia: datos.requiereAutorizacionPrevia ?? false,
         estado: 'ACTIVO',
       },
     });
@@ -356,9 +451,6 @@ export async function crearPlanObraSocial(
   };
 }
 
-/**
- * HU20 - Escenario 3 y 4: Edición de un plan de obra social con log de auditoría.
- */
 export async function editarPlanObraSocial(
   idPlan: number,
   datos: PlanInput,
@@ -378,11 +470,13 @@ export async function editarPlanObraSocial(
     throw new AppError('El plan especificado no pertenece a la obra social indicada.', 400);
   }
 
+  const nombreLimpio = datos.nombre.trim();
+
   const duplicadoEnMismaObraSocial = await prisma.plan.findFirst({
     where: {
       idObraSocial: planExistente.idObraSocial,
       nombre: {
-        equals: datos.nombre,
+        equals: nombreLimpio,
         mode: 'insensitive',
       },
       idPlan: {
@@ -401,16 +495,28 @@ export async function editarPlanObraSocial(
     idObraSocial: planExistente.idObraSocial,
     nombre: planExistente.nombre,
     descripcion: planExistente.descripcion,
+    requiereCopago: planExistente.requiereCopago,
+    montoCopago: planExistente.montoCopago,
+    requiereAutorizacionPrevia: planExistente.requiereAutorizacionPrevia,
     estado: planExistente.estado,
   };
+
+  const datosActualizacion: any = {
+    nombre: nombreLimpio,
+  };
+  if (datos.descripcion !== undefined) datosActualizacion.descripcion = datos.descripcion?.trim() ?? null;
+  if (datos.requiereCopago !== undefined) datosActualizacion.requiereCopago = datos.requiereCopago;
+  if (datos.montoCopago !== undefined) {
+    datosActualizacion.montoCopago = datos.montoCopago !== null ? datos.montoCopago : null;
+  }
+  if (datos.requiereAutorizacionPrevia !== undefined) {
+    datosActualizacion.requiereAutorizacionPrevia = datos.requiereAutorizacionPrevia;
+  }
 
   const actualizado = await prisma.$transaction(async (tx) => {
     const plan = await tx.plan.update({
       where: { idPlan },
-      data: {
-        nombre: datos.nombre,
-        ...(datos.descripcion !== undefined ? { descripcion: datos.descripcion } : {}),
-      },
+      data: datosActualizacion,
     });
 
     await tx.auditoria.create({
@@ -421,14 +527,9 @@ export async function editarPlanObraSocial(
         tablaAfectada: 'plan',
         idRegistroAfectado: idPlan,
         datosAnteriores: JSON.stringify(datosAnteriores),
-        datosNuevos: JSON.stringify({
-          idObraSocial: plan.idObraSocial,
-          nombre: plan.nombre,
-          descripcion: plan.descripcion,
-          estado: plan.estado,
-        }),
+        datosNuevos: JSON.stringify(plan),
         ip,
-        descripcion: `Modificación de plan ${datosAnteriores.nombre} a ${plan.nombre}.`,
+        descripcion: `Modificacion de plan ${datosAnteriores.nombre} a ${plan.nombre}.`,
       },
     });
 
@@ -441,10 +542,6 @@ export async function editarPlanObraSocial(
   };
 }
 
-/**
- * HU20 - Escenario 5: Baja lógica de un plan de obra social.
- * Pasa a INACTIVO y deja de aparecer en selectores sin afectar pacientes ni registros históricos.
- */
 export async function darDeBajaPlanObraSocial(
   idPlan: number,
   idAdministrativo: number,
@@ -487,7 +584,7 @@ export async function darDeBajaPlanObraSocial(
           estado: 'INACTIVO',
         }),
         ip,
-        descripcion: `Baja lógica de plan ${planExistente.nombre}.`,
+        descripcion: `Baja logica de plan ${planExistente.nombre}.`,
       },
     });
 
@@ -497,5 +594,215 @@ export async function darDeBajaPlanObraSocial(
   return {
     mensaje: 'El plan ha sido dado de baja correctamente.',
     plan: actualizado,
+  };
+}
+
+export async function reactivarPlanObraSocial(
+  idPlan: number,
+  idAdministrativo: number,
+  ip?: string,
+  idObraSocialParam?: number
+) {
+  const planExistente = await prisma.plan.findUnique({
+    where: { idPlan },
+    include: { obraSocial: true },
+  });
+
+  if (!planExistente) {
+    throw new AppError('Plan no encontrado.', 404);
+  }
+
+  if (idObraSocialParam !== undefined && planExistente.idObraSocial !== idObraSocialParam) {
+    throw new AppError('El plan especificado no pertenece a la obra social indicada.', 400);
+  }
+
+  if (planExistente.obraSocial.estado !== 'ACTIVO') {
+    throw new AppError(
+      'No se puede reactivar un plan cuya obra social se encuentra inactiva. Reactive primero la obra social.',
+      400
+    );
+  }
+
+  const reactivado = await prisma.$transaction(async (tx) => {
+    const plan = await tx.plan.update({
+      where: { idPlan },
+      data: {
+        estado: 'ACTIVO',
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idAdministrativo,
+        fechaHora: new Date(),
+        accion: 'REACTIVACION_PLAN_OBRA_SOCIAL',
+        tablaAfectada: 'plan',
+        idRegistroAfectado: idPlan,
+        datosAnteriores: JSON.stringify({ estado: planExistente.estado }),
+        datosNuevos: JSON.stringify({ estado: 'ACTIVO' }),
+        ip,
+        descripcion: `Reactivacion de plan ${plan.nombre}.`,
+      },
+    });
+
+    return plan;
+  });
+
+  return {
+    mensaje: 'El plan ha sido reactivado correctamente.',
+    plan: reactivado,
+  };
+}
+
+/**
+ * Validacion de elegibilidad y cobertura de afiliados para admision y recepcion en Argentina.
+ * Verifica estado de la obra social, plan, vigencia de credencial y reglas de copago o token digital.
+ */
+export async function validarElegibilidadAfiliado(datos: ValidarElegibilidadInput) {
+  const obraSocial = await prisma.obraSocial.findUnique({
+    where: { idObraSocial: datos.idObraSocial },
+  });
+
+  if (!obraSocial) {
+    throw new AppError('Obra social no encontrada.', 404);
+  }
+
+  if (obraSocial.estado !== 'ACTIVO') {
+    return {
+      elegible: false,
+      estadoCobertura: 'INACTIVO_O_SUSPENDIDO',
+      mensaje: `La obra social "${obraSocial.nombre}" se encuentra inactiva o con convenio suspendido en el sanatorio.`,
+      obraSocial: {
+        idObraSocial: obraSocial.idObraSocial,
+        nombre: obraSocial.nombre,
+        tipo: obraSocial.tipo,
+        codigoRnos: obraSocial.codigoRnos,
+      },
+      plan: null,
+      copago: { requiere: false, monto: null },
+      autorizacion: { requiere: false, motivo: null },
+    };
+  }
+
+  let plan: any = null;
+  if (datos.idPlan) {
+    plan = await prisma.plan.findFirst({
+      where: {
+        idPlan: datos.idPlan,
+        idObraSocial: datos.idObraSocial,
+      },
+    });
+
+    if (!plan) {
+      throw new AppError('El plan especificado no pertenece a la obra social.', 400);
+    }
+
+    if (plan.estado !== 'ACTIVO') {
+      return {
+        elegible: false,
+        estadoCobertura: 'INACTIVO_O_SUSPENDIDO',
+        mensaje: `El plan "${plan.nombre}" se encuentra inactivo para nuevos servicios.`,
+        obraSocial: {
+          idObraSocial: obraSocial.idObraSocial,
+          nombre: obraSocial.nombre,
+          tipo: obraSocial.tipo,
+        },
+        plan: {
+          idPlan: plan.idPlan,
+          nombre: plan.nombre,
+        },
+        copago: { requiere: false, monto: null },
+        autorizacion: { requiere: false, motivo: null },
+      };
+    }
+  }
+
+  let paciente: any = null;
+  if (datos.idPaciente) {
+    paciente = await prisma.paciente.findUnique({
+      where: { idPaciente: datos.idPaciente },
+      include: { usuario: true },
+    });
+
+    if (paciente?.vencimientoCredencial) {
+      const hoy = new Date();
+      if (new Date(paciente.vencimientoCredencial) < hoy) {
+        return {
+          elegible: false,
+          estadoCobertura: 'VENCIDO',
+          mensaje: `La credencial médica del paciente vencio el ${paciente.vencimientoCredencial.toISOString().split('T')[0]}. Se requiere actualizacion de constancia o carnet digital.`,
+          obraSocial: {
+            idObraSocial: obraSocial.idObraSocial,
+            nombre: obraSocial.nombre,
+            tipo: obraSocial.tipo,
+          },
+          plan: plan ? { idPlan: plan.idPlan, nombre: plan.nombre } : null,
+          copago: { requiere: false, monto: null },
+          autorizacion: { requiere: false, motivo: null },
+        };
+      }
+    }
+  }
+
+  // Validacion de Token Digital para Medicina Prepaga
+  const esPrepaga = obraSocial.tipo === 'MEDICINA_PREPAGA';
+  let tokenValidado = false;
+  if (esPrepaga && datos.tokenDigital) {
+    const tokenLimpio = datos.tokenDigital.trim();
+    tokenValidado = /^[0-9A-Za-z]{4,8}$/.test(tokenLimpio);
+  }
+
+  const requiereCopago = plan?.requiereCopago ?? false;
+  const montoCopago = plan?.montoCopago ? Number(plan.montoCopago) : null;
+  const requiereAutorizacion = plan?.requiereAutorizacionPrevia ?? false;
+
+  let estadoCobertura = 'HABILITADO';
+  let mensaje = 'Afiliado verificado y habilitado para atencion medica.';
+
+  if (requiereCopago && requiereAutorizacion) {
+    estadoCobertura = 'REQUIERE_COPAGO_Y_AUTORIZACION';
+    mensaje = `Cobertura activa con copago/bono ($${montoCopago ?? '0'}) y orden autorizada previa requerida.`;
+  } else if (requiereCopago) {
+    estadoCobertura = 'REQUIERE_COPAGO';
+    mensaje = `Cobertura activa sujeta a coseguro/bono de consulta ($${montoCopago ?? '0'}).`;
+  } else if (requiereAutorizacion) {
+    estadoCobertura = 'REQUIERE_AUTORIZACION';
+    mensaje = 'Cobertura activa. Requiere registrar numero de autorizacion previo para la practica.';
+  }
+
+  return {
+    elegible: true,
+    estadoCobertura,
+    mensaje,
+    obraSocial: {
+      idObraSocial: obraSocial.idObraSocial,
+      nombre: obraSocial.nombre,
+      tipo: obraSocial.tipo,
+      codigoRnos: obraSocial.codigoRnos,
+      cuit: obraSocial.cuit,
+      razonSocial: obraSocial.razonSocial,
+    },
+    plan: plan
+      ? {
+          idPlan: plan.idPlan,
+          nombre: plan.nombre,
+          requiereCopago: plan.requiereCopago,
+          montoCopago,
+          requiereAutorizacionPrevia: plan.requiereAutorizacionPrevia,
+        }
+      : null,
+    afiliado: {
+      numeroAfiliado: datos.numeroAfiliado || paciente?.numeroAfiliado || null,
+      subfijoAdherente: datos.subfijoAdherente || paciente?.subfijoAdherente || null,
+      tokenDigitalValidado: tokenValidado,
+    },
+    copago: {
+      requiere: requiereCopago,
+      monto: montoCopago,
+    },
+    autorizacion: {
+      requiere: requiereAutorizacion,
+      motivo: requiereAutorizacion ? 'Estudio o practica ambulatoria bajo plan cerrado' : null,
+    },
   };
 }
