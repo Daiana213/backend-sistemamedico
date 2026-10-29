@@ -2,6 +2,7 @@ import 'dotenv/config';
 import app from './app';
 import { prisma } from './config/prisma';
 import { asegurarReporteMensualAutomatico } from './services/reporteService';
+import { iniciarWorkerRecordatorios } from './services/recordatorioService';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
@@ -13,6 +14,19 @@ if (!process.env.VERCEL) {
     asegurarReporteMensualAutomatico().catch((err) => {
       console.error('Aviso al ejecutar verificación de reporte mensual automático:', err);
     });
+
+    // HU23: Iniciar worker de recordatorios automáticos de turnos (24 hs antes)
+    iniciarWorkerRecordatorios(30 * 60 * 1000);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ Error: El puerto ${PORT} ya está en uso por otro proceso.`);
+      console.error(`   Cierra el proceso que ocupa el puerto ${PORT} o define otro PORT en .env\n`);
+    } else {
+      console.error('\n❌ Error en el servidor HTTP:', err);
+    }
+    process.exit(1);
   });
 
   // Tarea programada cada 12 horas para generar automáticamente el reporte mensual al cierre del período

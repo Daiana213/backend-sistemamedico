@@ -341,3 +341,45 @@ export async function enviarNotificacionTurnoCancelado(datos: {
     html: construirPlantillaBase(titulo, contenido),
   });
 }
+
+
+/**
+ * 8. Notificación de recordatorio automático de turno (HU23 - 24 horas antes)
+ */
+export async function enviarRecordatorioTurno24hs(datos: {
+  emailPaciente: string;
+  nombrePaciente: string;
+  nombreProfesional: string;
+  especialidad?: string;
+  fechaHora: Date;
+}) {
+  const fechaFormateada = formatearFechaHoraTurno(datos.fechaHora);
+  const titulo = 'Recordatorio: Mañana tenés un turno médico';
+  const contenido = `
+    <p style="margin:0 0 16px;line-height:1.6;color:#374151;">
+      Hola <strong>${datos.nombrePaciente}</strong>,
+    </p>
+    <p style="margin:0 0 16px;line-height:1.6;color:#374151;">
+      Te recordamos que tenés una cita médica programada en <strong>Sanatorio Antonia</strong> en las próximas 24 horas:
+    </p>
+    <div style="margin:20px 0;padding:20px;background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;line-height:1.8;">
+      <div><strong>Profesional:</strong> Dr./Dra. ${datos.nombreProfesional}</div>
+      ${datos.especialidad ? `<div><strong>Especialidad:</strong> ${datos.especialidad}</div>` : ''}
+      <div><strong>Fecha y hora:</strong> <span style="color:#166534;font-weight:700;">${fechaFormateada}</span></div>
+      <div><strong>Lugar:</strong> Sanatorio Antonia - Sede Central (Av. Belgrano 1240)</div>
+    </div>
+    <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">
+      Por favor presentate en recepción 15 minutos antes de tu horario con tu DNI y credencial médica.
+    </p>
+    <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.5;">
+      Si no podés asistir, por favor cancelá o reprogramá tu turno desde la plataforma web con la mayor anticipación posible para que otro paciente pueda ocupar el espacio.
+    </p>
+  `;
+
+  return enviarEmail({
+    para: datos.emailPaciente,
+    asunto: `Recordatorio de Turno para mañana - Dr./Dra. ${datos.nombreProfesional} - Sanatorio Antonia`,
+    texto: `Hola ${datos.nombrePaciente}, te recordamos tu turno médico para mañana ${fechaFormateada} con Dr./Dra. ${datos.nombreProfesional} en Sanatorio Antonia.`,
+    html: construirPlantillaBase(titulo, contenido),
+  });
+}

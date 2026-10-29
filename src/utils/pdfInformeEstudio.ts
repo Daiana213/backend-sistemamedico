@@ -57,6 +57,13 @@ export interface DatosInformeEstudio {
       };
     } | null;
   };
+  profesional?: {
+    matricula: string;
+    usuario: {
+      nombre: string;
+      apellido: string;
+    };
+  } | null;
 }
 
 /**
@@ -306,14 +313,22 @@ export function generarPdfInformeEstudio(datos: DatosInformeEstudio): Buffer {
   streamLines.push('0.3 0.3 0.3 rg');
   streamLines.push('/F1 7.5 Tf');
   streamLines.push('380 66 Td');
-  streamLines.push('(Dpto. de Diagnostico Medico) Tj');
+  if (datos.profesional) {
+    streamLines.push(`(${sanitizarTextoPdf(`Dr./Dra. ${datos.profesional.usuario.apellido}, ${datos.profesional.usuario.nombre}`)}) Tj`);
+  } else {
+    streamLines.push('(Dpto. de Diagnostico Medico) Tj');
+  }
   streamLines.push('ET');
 
   streamLines.push('BT');
   streamLines.push('0.3 0.3 0.3 rg');
   streamLines.push('/F1 7.5 Tf');
   streamLines.push('380 54 Td');
-  streamLines.push('(Sanatorio Antonia - Mat. Inst. 84920) Tj');
+  if (datos.profesional) {
+    streamLines.push(`(${sanitizarTextoPdf(`Mat. ${datos.profesional.matricula} - Sanatorio Antonia`)}) Tj`);
+  } else {
+    streamLines.push('(Sanatorio Antonia - Mat. Inst. 84920) Tj');
+  }
   streamLines.push('ET');
 
   const streamContent = streamLines.join('\n');

@@ -6,6 +6,13 @@ import * as turnoController from '../controllers/turnoController';
 
 const router = Router();
 
+// HU23: Trigger administrativo o cron para procesar recordatorios automáticos 24 hs
+router.post(
+  '/recordatorios/procesar',
+  authenticate,
+  turnoController.procesarRecordatorios
+);
+
 // Crear / Solicitar nuevo turno médico (requiere perfil completo con email, sexo y obra social/plan)
 router.post(
   '/',
@@ -19,6 +26,19 @@ router.get(
   '/',
   authenticate,
   turnoController.listar
+);
+
+// Recepción de pacientes: Registro de llegada en sala de espera (Administrativo)
+router.patch(
+  '/:id/recepcion',
+  authenticate,
+  turnoController.registrarRecepcion
+);
+
+router.post(
+  '/:id/recepcion',
+  authenticate,
+  turnoController.registrarRecepcion
 );
 
 // Cancelar un turno
@@ -62,4 +82,3 @@ router.patch(
 );
 
 export default router;
-

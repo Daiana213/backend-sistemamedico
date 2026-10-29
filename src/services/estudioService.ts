@@ -22,6 +22,7 @@ async function asegurarTablaEstudioMedico() {
       CREATE TABLE IF NOT EXISTS "estudio_medico" (
         "id_estudio" SERIAL NOT NULL,
         "id_paciente" INTEGER NOT NULL,
+        "id_profesional" INTEGER,
         "nombre" VARCHAR(150) NOT NULL,
         "codigo" VARCHAR(150) NOT NULL,
         "observacion" TEXT,
@@ -35,9 +36,29 @@ async function asegurarTablaEstudioMedico() {
       CREATE INDEX IF NOT EXISTS "idx_estudio_medico_paciente_estado"
       ON "estudio_medico"("id_paciente", "estado");
     `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "estudio_medico" ADD COLUMN IF NOT EXISTS "id_profesional" INTEGER;
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "profesional" ADD COLUMN IF NOT EXISTS "puede_cargar_estudios" BOOLEAN NOT NULL DEFAULT false;
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "turno" ADD COLUMN IF NOT EXISTS "recordatorio_enviado" BOOLEAN NOT NULL DEFAULT false;
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "turno" ADD COLUMN IF NOT EXISTS "fecha_recordatorio" TIMESTAMP(6);
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "turno" ADD COLUMN IF NOT EXISTS "presente" BOOLEAN NOT NULL DEFAULT false;
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "turno" ADD COLUMN IF NOT EXISTS "fecha_llegada" TIMESTAMP(6);
+    `);
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "turno" ADD COLUMN IF NOT EXISTS "fecha_creacion" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    `);
     tablaVerificada = true;
   } catch {
-    // Si falla por permisos DDL restringidos pero la tabla ya existe por migración, continuar
     tablaVerificada = true;
   }
 }
@@ -85,6 +106,7 @@ export function construirMetadatosPacs(codigo: string) {
 function mapearEstudioRespuesta(estudio: {
   idEstudio: number;
   idPaciente: number;
+  idProfesional?: number | null;
   nombre: string;
   codigo: string;
   observacion: string | null;
@@ -95,6 +117,7 @@ function mapearEstudioRespuesta(estudio: {
   return {
     idEstudio: estudio.idEstudio,
     idPaciente: estudio.idPaciente,
+    idProfesional: estudio.idProfesional ?? null,
     nombre: estudio.nombre,
     codigo: estudio.codigo,
     observacion: estudio.observacion,
@@ -193,52 +216,64 @@ export async function obtenerMiEstudioPorId(idUsuario: number, idEstudio: number
 /**
  * HU21 - Escenario 1: Alta de código de estudio médico asociado a la historia clínica del paciente.
  */
-export async function crearEstudio(
-  idUsuario: number,
-  datos: EstudioMedicoInput,
-  ip?: string
-) {
-  await asegurarTablaEstudioMedico();
-  const paciente = await obtenerPacientePorUsuario(idUsuario);
-  const codigoFinal = datos.codigo?.trim() || generarCodigoEstudio();
 
-  const nuevoEstudio = await prisma.$transaction(async (tx) => {
-    const creado = await tx.estudioMedico.create({
-      data: {
-        idPaciente: paciente.idPaciente,
-        nombre: datos.nombre.trim(),
-        codigo: codigoFinal,
-        observacion: datos.observacion ?? null,
-        estado: 'ACTIVO',
+const ESPECIALIDADES_DIAGNOSTICAS_KEYWORDS = [
+  'imagen',
+  'radiolog',
+  'bioquim',
+  'laboratorio',
+  'diagnostico',
+  'ecograf',
+  'patolog',
+  'cardiolog',
+  'tomograf',
+  'resonanc',
+];
+
+/**
+ * HU21: Valida si el profesional cuenta con especialidad diagnóstica (Opción A)
+ * o con permiso administrativo configurable puedeCargarEstudios (Opción B).
+ */
+export async function profesionalTieneHabilitacionEstudios(profesional: {
+  idProfesional: number;
+  puedeCargarEstudios: boolean;
+  especialidades?: { especialidad: { nombre: string } }[];
+}): Promise<boolean> {
+  // Opción B: Habilitación administrativa expresa
+  if (profesional.puedeCargarEstudios) {
+    return true;
+  }
+
+  // Opción A: Especialidad diagnóstica
+  let especialidades = profesional.especialidades;
+  if (!especialidades) {
+    const profConEsp = await prisma.profesional.findUnique({
+      where: { idProfesional: profesional.idProfesional },
+      include: {
+        especialidades: {
+          include: { especialidad: true },
+        },
       },
     });
+    especialidades = profConEsp?.especialidades || [];
+  }
 
-    await tx.auditoria.create({
-      data: {
-        idUsuario,
-        fechaHora: new Date(),
-        accion: 'ALTA_ESTUDIO_MEDICO_PACIENTE',
-        tablaAfectada: 'estudio_medico',
-        idRegistroAfectado: creado.idEstudio,
-        datosNuevos: JSON.stringify({
-          idEstudio: creado.idEstudio,
-          idPaciente: creado.idPaciente,
-          nombre: creado.nombre,
-          codigo: creado.codigo,
-          observacion: creado.observacion,
-        }),
-        ip,
-        descripcion: `Alta de estudio médico "${creado.nombre}" por el paciente (código: ${creado.codigo}).`,
-      },
-    });
-
-    return creado;
+  return especialidades.some((pe) => {
+    const nombreEsp = pe.especialidad.nombre.toLowerCase();
+    return ESPECIALIDADES_DIAGNOSTICAS_KEYWORDS.some((kw) => nombreEsp.includes(kw));
   });
+}
 
-  return {
-    mensaje: 'Estudio agregado correctamente.',
-    estudio: mapearEstudioRespuesta(nuevoEstudio),
-  };
+export async function crearEstudio(
+  _idUsuario: number,
+  _datos: EstudioMedicoInput,
+  _ip?: string
+) {
+  // HU21 Escenario 4: El paciente no tiene permisos de carga personal (solo lectura)
+  throw new AppError(
+    'No tenés permisos para cargar o gestionar estudios médicos. La gestión es realizada por los profesionales habilitados y el área de administración.',
+    403
+  );
 }
 
 /**
@@ -267,8 +302,37 @@ export async function crearEstudioParaPaciente(
     throw new AppError('Paciente no encontrado.', 404);
   }
 
+  let idProfesionalAsociado: number | null = null;
+
   if (rolCreador === 'PROFESIONAL') {
+    const profesional = await prisma.profesional.findUnique({
+      where: { idUsuario: idUsuarioCreador },
+      include: {
+        especialidades: {
+          include: { especialidad: true },
+        },
+      },
+    });
+
+    if (!profesional) {
+      throw new AppError('Perfil de profesional no encontrado.', 404);
+    }
+
+    const habilitado = await profesionalTieneHabilitacionEstudios(profesional);
+    if (!habilitado) {
+      throw new AppError(
+        'No tenés permisos para cargar o gestionar estudios médicos. Se requiere especialidad diagnóstica o habilitación administrativa expresa.',
+        403
+      );
+    }
+
     await verificarVinculoProfesionalPaciente(idUsuarioCreador, idPaciente);
+    idProfesionalAsociado = profesional.idProfesional;
+  } else if (rolCreador !== 'ADMINISTRATIVO') {
+    throw new AppError(
+      'No tenés permisos para cargar o gestionar estudios médicos. La gestión es realizada por los profesionales habilitados y el área de administración.',
+      403
+    );
   }
 
   const codigoFinal = datos.codigo?.trim() || generarCodigoEstudio();
@@ -277,6 +341,7 @@ export async function crearEstudioParaPaciente(
     const creado = await tx.estudioMedico.create({
       data: {
         idPaciente,
+        idProfesional: idProfesionalAsociado,
         nombre: datos.nombre.trim(),
         codigo: codigoFinal,
         observacion: datos.observacion?.trim() ?? null,
@@ -527,11 +592,26 @@ export async function actualizarEstudioGenerico(
   }
 
   if (rolEditor === 'PACIENTE') {
-    const paciente = await obtenerPacientePorUsuario(idUsuarioEditor);
-    if (estudioExistente.idPaciente !== paciente.idPaciente) {
-      throw new AppError('No tenés permisos para modificar este estudio.', 403);
-    }
+    throw new AppError(
+      'No tenés permisos para cargar o gestionar estudios médicos. La gestión es realizada por los profesionales habilitados y el área de administración.',
+      403
+    );
   } else if (rolEditor === 'PROFESIONAL') {
+    const profesional = await prisma.profesional.findUnique({
+      where: { idUsuario: idUsuarioEditor },
+      include: {
+        especialidades: {
+          include: { especialidad: true },
+        },
+      },
+    });
+    if (!profesional) {
+      throw new AppError('Perfil de profesional no encontrado.', 404);
+    }
+    const habilitado = await profesionalTieneHabilitacionEstudios(profesional);
+    if (!habilitado) {
+      throw new AppError('No tenés permisos para cargar o gestionar estudios médicos.', 403);
+    }
     await verificarVinculoProfesionalPaciente(idUsuarioEditor, estudioExistente.idPaciente);
   } else if (rolEditor !== 'ADMINISTRATIVO') {
     throw new AppError('Rol no autorizado para modificar estudios médicos.', 403);
@@ -604,11 +684,26 @@ export async function eliminarEstudioGenerico(
   }
 
   if (rol === 'PACIENTE') {
-    const paciente = await obtenerPacientePorUsuario(idUsuario);
-    if (estudioExistente.idPaciente !== paciente.idPaciente) {
-      throw new AppError('No tenés permisos para eliminar este estudio.', 403);
-    }
+    throw new AppError(
+      'No tenés permisos para cargar o gestionar estudios médicos. La gestión es realizada por los profesionales habilitados y el área de administración.',
+      403
+    );
   } else if (rol === 'PROFESIONAL') {
+    const profesional = await prisma.profesional.findUnique({
+      where: { idUsuario },
+      include: {
+        especialidades: {
+          include: { especialidad: true },
+        },
+      },
+    });
+    if (!profesional) {
+      throw new AppError('Perfil de profesional no encontrado.', 404);
+    }
+    const habilitado = await profesionalTieneHabilitacionEstudios(profesional);
+    if (!habilitado) {
+      throw new AppError('No tenés permisos para cargar o gestionar estudios médicos.', 403);
+    }
     await verificarVinculoProfesionalPaciente(idUsuario, estudioExistente.idPaciente);
   } else if (rol !== 'ADMINISTRATIVO') {
     throw new AppError('Rol no autorizado para eliminar estudios médicos.', 403);
@@ -956,6 +1051,11 @@ export async function generarInformePdfEstudio(
       idEstudio,
     },
     include: {
+      profesional: {
+        include: {
+          usuario: true,
+        },
+      },
       paciente: {
         include: {
           usuario: true,
@@ -990,5 +1090,6 @@ export async function generarInformePdfEstudio(
     observacion: estudio.observacion,
     fechaCarga: estudio.fechaCarga,
     paciente: estudio.paciente,
+    profesional: estudio.profesional,
   });
 }
