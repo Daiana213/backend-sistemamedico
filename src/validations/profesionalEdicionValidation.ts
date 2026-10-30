@@ -34,6 +34,9 @@ export const editarProfesionalSchema = z.object({
   especialidades: z
     .array(z.number().int().positive())
     .min(1, 'Debe asignarse al menos una especialidad.'),
+  obrasSociales: z
+    .array(z.number().int().positive())
+    .optional(),
   estado: z.enum(['ACTIVO', 'INACTIVO']).optional(),
 });
 

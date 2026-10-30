@@ -2,9 +2,25 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import { validate } from '../middlewares/validate';
 import { crearTurnoSchema } from '../validations/turnoValidation';
+import { simularCoberturaTurnoSchema } from '../validations/obraSocialValidation';
 import * as turnoController from '../controllers/turnoController';
+import { simularCoberturaController } from '../controllers/obraSocialController';
 
 const router = Router();
+
+// Simulación previa de cobertura de obra social y requisitos para la consulta médica
+router.get(
+  '/simular-cobertura',
+  authenticate,
+  simularCoberturaController
+);
+
+router.post(
+  '/simular-cobertura',
+  authenticate,
+  validate(simularCoberturaTurnoSchema),
+  simularCoberturaController
+);
 
 // HU23: Trigger administrativo o cron para procesar recordatorios automáticos 24 hs
 router.post(

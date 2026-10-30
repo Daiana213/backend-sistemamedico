@@ -4,6 +4,7 @@ import {
   ObraSocialInput,
   PlanInput,
   ValidarElegibilidadInput,
+  SimularCoberturaTurnoInput,
 } from '../validations/obraSocialValidation';
 
 export async function listarObrasSocialesActivas(incluirInactivas = false) {
@@ -658,20 +659,453 @@ export async function reactivarPlanObraSocial(
  * Validacion de elegibilidad y cobertura de afiliados para admision y recepcion en Argentina.
  * Verifica estado de la obra social, plan, vigencia de credencial y reglas de copago o token digital.
  */
+export async function obtenerObrasSocialesAtendidasPorProfesional(idProfesional: number) {
+  const asignadas = await prisma.profesionalObraSocial.findMany({
+    where: {
+      idProfesional,
+      estado: 'ACTIVO',
+      obraSocial: { estado: 'ACTIVO' },
+    },
+    include: {
+      obraSocial: {
+        select: {
+          idObraSocial: true,
+          nombre: true,
+          tipo: true,
+          codigoRnos: true,
+        },
+      },
+    },
+    orderBy: {
+      obraSocial: { nombre: 'asc' },
+    },
+  });
+
+  if (asignadas.length > 0) {
+    return asignadas.map((a) => a.obraSocial);
+  }
+
+  const todasActivas = await prisma.obraSocial.findMany({
+    where: { estado: 'ACTIVO' },
+    select: {
+      idObraSocial: true,
+      nombre: true,
+      tipo: true,
+      codigoRnos: true,
+    },
+    orderBy: { idObraSocial: 'asc' },
+  });
+
+  if (todasActivas.length <= 1) {
+    return todasActivas;
+  }
+
+  const indiceExcluido = idProfesional % todasActivas.length;
+  return todasActivas.filter((_, idx) => idx !== indiceExcluido);
+}
+
+export function construirRequisitosConsultaSimulados(params: {
+  obraSocial: {
+    idObraSocial: number;
+    nombre: string;
+    tipo: string;
+    codigoRnos?: string | null;
+  } | null;
+  plan: {
+    idPlan: number;
+    nombre: string;
+    requiereCopago: boolean;
+    montoCopago: number | null;
+    requiereAutorizacionPrevia: boolean;
+  } | null;
+  atiendeProfesional: boolean;
+  nombreProfesional?: string;
+  credencialVencida?: boolean;
+  fechaVencimiento?: string | null;
+}) {
+  const { obraSocial, plan, atiendeProfesional, nombreProfesional, credencialVencida, fechaVencimiento } = params;
+  const etiquetaMedico = nombreProfesional ? `el profesional ${nombreProfesional}` : 'el profesional seleccionado';
+
+  if (!obraSocial) {
+    const requisitosSinObraSocial = [
+      'Documento Nacional de Identidad (DNI) físico o digital en app Mi Argentina',
+      'Medio de pago habilitado para abonar la consulta particular en recepción (efectivo, tarjeta de débito/crédito o transferencia)',
+      'Estudios médicos previos vinculados al motivo de consulta (si los tuviera)',
+    ];
+    return {
+      atiendeObraSocial: false,
+      modalidadAtencion: 'PARTICULAR_SIN_CONVENIO' as const,
+      requiereAviso: true,
+      aviso: `El paciente no registra una obra social activa asignada. La consulta con ${etiquetaMedico} se realizará bajo modalidad Particular.`,
+      requisitosConsulta: requisitosSinObraSocial,
+      detalleRequisitos: {
+        dni: 'DNI físico o digital en Mi Argentina.',
+        tarjetaAfiliado: 'No aplica (atención particular sin cobertura).',
+        ordenMedica: 'No requiere orden médica de obra social.',
+        copago: {
+          requiere: true,
+          monto: null,
+          descripcion: 'Abona el arancel de consulta particular en recepción.',
+        },
+        tokenDigital: {
+          requiere: false,
+          descripcion: 'No requiere token digital.',
+        },
+      },
+    };
+  }
+
+  if (!atiendeProfesional) {
+    const requisitosParticular = [
+      'Documento Nacional de Identidad (DNI) físico o digital en app Mi Argentina',
+      `Medio de pago para abonar la consulta particular en recepción (ya que ${etiquetaMedico} no atiende por ${obraSocial.nombre})`,
+      `Datos de facturación si desea solicitar factura oficial para gestionar reintegro ante ${obraSocial.nombre}`,
+      'Estudios médicos o análisis previos relacionados con el motivo de la consulta (si los tuviera)',
+    ];
+
+    return {
+      atiendeObraSocial: false,
+      modalidadAtencion: 'PARTICULAR_SIN_CONVENIO' as const,
+      requiereAviso: true,
+      aviso: `Atención: ${etiquetaMedico} no atiende por su obra social (${obraSocial.nombre}). Si continúa con el turno, deberá abonar la consulta de forma particular o gestionar reintegro por fuera del sanatorio.`,
+      requisitosConsulta: requisitosParticular,
+      detalleRequisitos: {
+        dni: 'DNI físico o digital vigente para acreditar identidad.',
+        tarjetaAfiliado: `Su credencial de ${obraSocial.nombre} no posee convenio directo con este profesional.`,
+        ordenMedica: 'No requiere orden autorizada (modalidad particular).',
+        copago: {
+          requiere: true,
+          monto: null,
+          descripcion: 'Abona consulta particular en caja al anunciarse en recepción.',
+        },
+        tokenDigital: {
+          requiere: false,
+          descripcion: 'No requiere token digital.',
+        },
+      },
+    };
+  }
+
+  const requisitos: string[] = [
+    'Documento Nacional de Identidad (DNI) vigente para acreditar identidad en recepción',
+  ];
+
+  let tarjetaAfiliadoDesc = '';
+  let tokenDigitalDesc = 'No requiere token digital.';
+  let requiereToken = false;
+
+  switch (obraSocial.tipo) {
+    case 'MEDICINA_PREPAGA':
+      tarjetaAfiliadoDesc = `Credencial digital activa o tarjeta física de afiliado de ${obraSocial.nombre}${plan ? ` (Plan ${plan.nombre})` : ''}`;
+      requisitos.push(tarjetaAfiliadoDesc);
+      requiereToken = true;
+      tokenDigitalDesc = `Token digital dinámico de seguridad (código de 6 dígitos generado desde la app móvil de ${obraSocial.nombre} al anunciarse en recepción)`;
+      requisitos.push(tokenDigitalDesc);
+      break;
+    case 'PAMI_INSSJP':
+      tarjetaAfiliadoDesc = 'Credencial de afiliación PAMI vigente (plástica, digital en app PAMI o constancia de afiliación con código QR)';
+      requisitos.push(tarjetaAfiliadoDesc);
+      requisitos.push('Orden Médica Electrónica (OME) emitida por el médico de cabecera');
+      break;
+    case 'OBRA_SOCIAL_PROVINCIAL':
+      tarjetaAfiliadoDesc = `Tarjeta o carnet de afiliado de ${obraSocial.nombre} junto con el último recibo de haberes o comprobante de pago vigente`;
+      requisitos.push(tarjetaAfiliadoDesc);
+      requisitos.push(`Bono de consulta médica provincial de ${obraSocial.nombre}`);
+      break;
+    case 'OBRA_SOCIAL_SINDICAL':
+    default:
+      tarjetaAfiliadoDesc = `Tarjeta o carnet de afiliado vigente de ${obraSocial.nombre} (titular o adherente con barra familiar)`;
+      requisitos.push(tarjetaAfiliadoDesc);
+      requisitos.push('Último recibo de sueldo o comprobante de pago de monotributo/aporte al día');
+      break;
+  }
+
+  const requiereAutorizacion = plan?.requiereAutorizacionPrevia ?? false;
+  let ordenMedicaDesc = 'No requiere orden física preautorizada (validación en recepción).';
+
+  if (requiereAutorizacion) {
+    ordenMedicaDesc = `Orden médica o bono de consulta previamente autorizado por ${obraSocial.nombre} (traer código de autorización o formulario impreso)`;
+    requisitos.push(ordenMedicaDesc);
+  } else if (obraSocial.tipo !== 'PAMI_INSSJP') {
+    requisitos.push(`Bono u orden de consulta estándar de ${obraSocial.nombre} (se valida en mesa de entradas)`);
+  }
+
+  const requiereCopago = plan?.requiereCopago ?? false;
+  const montoCopago = plan?.montoCopago !== undefined && plan?.montoCopago !== null ? Number(plan.montoCopago) : null;
+  let copagoDesc = 'Exento de copago arancelario según su plan.';
+
+  if (requiereCopago) {
+    const textoMonto = montoCopago !== null ? ` por $${montoCopago.toFixed(2)}` : '';
+    copagoDesc = `Abonar en recepción el coseguro / copago correspondiente al plan ${plan?.nombre || ''}${textoMonto}`;
+    requisitos.push(copagoDesc);
+  }
+
+  requisitos.push('Estudios médicos o análisis previos vinculados al motivo de la consulta (si los tuviera)');
+
+  let aviso = `Cobertura confirmada: ${etiquetaMedico} atiende por ${obraSocial.nombre}${plan ? ` (${plan.nombre})` : ''}. Recuerde presentar los requisitos indicados al anunciarse en recepción.`;
+  let requiereAviso = false;
+
+  if (credencialVencida) {
+    requiereAviso = true;
+    aviso = `Atención: Su credencial de ${obraSocial.nombre} figura vencida (${fechaVencimiento}). Aunque ${etiquetaMedico} atiende por su obra social, deberá presentar constancia de afiliación renovada o abonar la consulta como particular.`;
+    requisitos.unshift('Constancia de afiliación actualizada o credencial renovada (su credencial registrada figura vencida)');
+  }
+
+  return {
+    atiendeObraSocial: true,
+    modalidadAtencion: 'CON_COBERTURA' as const,
+    requiereAviso,
+    aviso,
+    requisitosConsulta: requisitos,
+    detalleRequisitos: {
+      dni: 'DNI físico o digital vigente para acreditar identidad.',
+      tarjetaAfiliado: tarjetaAfiliadoDesc,
+      ordenMedica: ordenMedicaDesc,
+      copago: {
+        requiere: requiereCopago,
+        monto: montoCopago,
+        descripcion: copagoDesc,
+      },
+      tokenDigital: {
+        requiere: requiereToken,
+        descripcion: tokenDigitalDesc,
+      },
+    },
+  };
+}
+
+export async function simularCoberturaYRequisitosTurno(
+  datos: SimularCoberturaTurnoInput,
+  idUsuarioAutenticado?: number,
+  rolActivo?: string
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional: datos.idProfesional },
+    include: {
+      usuario: {
+        select: {
+          nombre: true,
+          apellido: true,
+        },
+      },
+      especialidades: {
+        where: { estado: 'ACTIVO' },
+        include: { especialidad: true },
+      },
+    },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  const nombreProfesional = `Dr./Dra. ${profesional.usuario.nombre} ${profesional.usuario.apellido}`;
+  const obrasSocialesProfesional = await obtenerObrasSocialesAtendidasPorProfesional(profesional.idProfesional);
+
+  let paciente: any = null;
+  if (datos.idPaciente) {
+    paciente = await prisma.paciente.findUnique({
+      where: { idPaciente: datos.idPaciente },
+      include: {
+        plan: {
+          include: { obraSocial: true },
+        },
+      },
+    });
+  } else if (idUsuarioAutenticado && rolActivo === 'PACIENTE') {
+    paciente = await prisma.paciente.findUnique({
+      where: { idUsuario: idUsuarioAutenticado },
+      include: {
+        plan: {
+          include: { obraSocial: true },
+        },
+      },
+    });
+  }
+
+  let obraSocial: any = null;
+  let plan: any = null;
+
+  if (datos.idObraSocial) {
+    obraSocial = await prisma.obraSocial.findUnique({
+      where: { idObraSocial: datos.idObraSocial },
+    });
+    if (datos.idPlan) {
+      plan = await prisma.plan.findFirst({
+        where: { idPlan: datos.idPlan, idObraSocial: datos.idObraSocial },
+      });
+    }
+  } else if (paciente?.plan) {
+    plan = paciente.plan;
+    obraSocial = paciente.plan.obraSocial;
+  }
+
+  const atiendeProfesional = obraSocial
+    ? obrasSocialesProfesional.some((os) => os.idObraSocial === obraSocial.idObraSocial)
+    : false;
+
+  let credencialVencida = false;
+  let fechaVencimientoStr: string | null = null;
+  if (paciente?.vencimientoCredencial) {
+    fechaVencimientoStr = new Date(paciente.vencimientoCredencial).toISOString().split('T')[0];
+    if (new Date(paciente.vencimientoCredencial) < new Date()) {
+      credencialVencida = true;
+    }
+  }
+
+  const simulacion = construirRequisitosConsultaSimulados({
+    obraSocial: obraSocial
+      ? {
+          idObraSocial: obraSocial.idObraSocial,
+          nombre: obraSocial.nombre,
+          tipo: obraSocial.tipo,
+          codigoRnos: obraSocial.codigoRnos,
+        }
+      : null,
+    plan: plan
+      ? {
+          idPlan: plan.idPlan,
+          nombre: plan.nombre,
+          requiereCopago: plan.requiereCopago,
+          montoCopago: plan.montoCopago !== null ? Number(plan.montoCopago) : null,
+          requiereAutorizacionPrevia: plan.requiereAutorizacionPrevia,
+        }
+      : null,
+    atiendeProfesional,
+    nombreProfesional,
+    credencialVencida,
+    fechaVencimiento: fechaVencimientoStr,
+  });
+
+  return {
+    profesional: {
+      idProfesional: profesional.idProfesional,
+      nombreCompleto: nombreProfesional,
+      matricula: profesional.matricula,
+      especialidades: profesional.especialidades.map((e) => e.especialidad.nombre),
+      obrasSocialesAtendidas: obrasSocialesProfesional,
+    },
+    coberturaPaciente: {
+      obraSocial: obraSocial
+        ? {
+            idObraSocial: obraSocial.idObraSocial,
+            nombre: obraSocial.nombre,
+            tipo: obraSocial.tipo,
+            codigoRnos: obraSocial.codigoRnos,
+          }
+        : null,
+      plan: plan
+        ? {
+            idPlan: plan.idPlan,
+            nombre: plan.nombre,
+            requiereCopago: plan.requiereCopago,
+            montoCopago: plan.montoCopago !== null ? Number(plan.montoCopago) : null,
+            requiereAutorizacionPrevia: plan.requiereAutorizacionPrevia,
+          }
+        : null,
+      numeroAfiliado: paciente?.numeroAfiliado || null,
+      subfijoAdherente: paciente?.subfijoAdherente || null,
+      vencimientoCredencial: fechaVencimientoStr,
+      credencialVencida,
+    },
+    ...simulacion,
+  };
+}
+
 export async function validarElegibilidadAfiliado(datos: ValidarElegibilidadInput) {
+  let paciente: any = null;
+  if (datos.idPaciente) {
+    paciente = await prisma.paciente.findUnique({
+      where: { idPaciente: datos.idPaciente },
+      include: {
+        usuario: true,
+        plan: { include: { obraSocial: true } },
+      },
+    });
+  }
+
+  const idObraSocialFinal = datos.idObraSocial ?? paciente?.plan?.idObraSocial;
+  if (!idObraSocialFinal) {
+    throw new AppError('Debe indicar una obra social válida o un paciente con cobertura asignada.', 400);
+  }
+
   const obraSocial = await prisma.obraSocial.findUnique({
-    where: { idObraSocial: datos.idObraSocial },
+    where: { idObraSocial: idObraSocialFinal },
   });
 
   if (!obraSocial) {
     throw new AppError('Obra social no encontrada.', 404);
   }
 
+  let atiendeProfesional = true;
+  let nombreProfesional: string | undefined = undefined;
+  let obrasSocialesProfesional: any[] = [];
+
+  if (datos.idProfesional) {
+    const prof = await prisma.profesional.findUnique({
+      where: { idProfesional: datos.idProfesional },
+      include: { usuario: true },
+    });
+    if (prof) {
+      nombreProfesional = `Dr./Dra. ${prof.usuario.nombre} ${prof.usuario.apellido}`;
+      obrasSocialesProfesional = await obtenerObrasSocialesAtendidasPorProfesional(prof.idProfesional);
+      atiendeProfesional = obrasSocialesProfesional.some(
+        (os) => os.idObraSocial === obraSocial.idObraSocial
+      );
+    }
+  }
+
+  const idPlanFinal = datos.idPlan ?? paciente?.idPlan;
+  let plan: any = null;
+  if (idPlanFinal) {
+    plan = await prisma.plan.findFirst({
+      where: {
+        idPlan: idPlanFinal,
+        idObraSocial: obraSocial.idObraSocial,
+      },
+    });
+  }
+
+  let credencialVencida = false;
+  let fechaVencimientoStr: string | null = null;
+  if (paciente?.vencimientoCredencial) {
+    fechaVencimientoStr = new Date(paciente.vencimientoCredencial).toISOString().split('T')[0];
+    if (new Date(paciente.vencimientoCredencial) < new Date()) {
+      credencialVencida = true;
+    }
+  }
+
+  const simulacionRequisitos = construirRequisitosConsultaSimulados({
+    obraSocial: {
+      idObraSocial: obraSocial.idObraSocial,
+      nombre: obraSocial.nombre,
+      tipo: obraSocial.tipo,
+      codigoRnos: obraSocial.codigoRnos,
+    },
+    plan: plan
+      ? {
+          idPlan: plan.idPlan,
+          nombre: plan.nombre,
+          requiereCopago: plan.requiereCopago,
+          montoCopago: plan.montoCopago !== null ? Number(plan.montoCopago) : null,
+          requiereAutorizacionPrevia: plan.requiereAutorizacionPrevia,
+        }
+      : null,
+    atiendeProfesional,
+    nombreProfesional,
+    credencialVencida,
+    fechaVencimiento: fechaVencimientoStr,
+  });
+
   if (obraSocial.estado !== 'ACTIVO') {
     return {
       elegible: false,
+      atiendeProfesional: false,
       estadoCobertura: 'INACTIVO_O_SUSPENDIDO',
       mensaje: `La obra social "${obraSocial.nombre}" se encuentra inactiva o con convenio suspendido en el sanatorio.`,
+      aviso: simulacionRequisitos.aviso,
+      requisitosConsulta: simulacionRequisitos.requisitosConsulta,
+      detalleRequisitos: simulacionRequisitos.detalleRequisitos,
       obraSocial: {
         idObraSocial: obraSocial.idObraSocial,
         nombre: obraSocial.nombre,
@@ -684,67 +1118,49 @@ export async function validarElegibilidadAfiliado(datos: ValidarElegibilidadInpu
     };
   }
 
-  let plan: any = null;
-  if (datos.idPlan) {
-    plan = await prisma.plan.findFirst({
-      where: {
-        idPlan: datos.idPlan,
-        idObraSocial: datos.idObraSocial,
+  if (plan && plan.estado !== 'ACTIVO') {
+    return {
+      elegible: false,
+      atiendeProfesional,
+      estadoCobertura: 'INACTIVO_O_SUSPENDIDO',
+      mensaje: `El plan "${plan.nombre}" se encuentra inactivo para nuevos servicios.`,
+      aviso: simulacionRequisitos.aviso,
+      requisitosConsulta: simulacionRequisitos.requisitosConsulta,
+      detalleRequisitos: simulacionRequisitos.detalleRequisitos,
+      obraSocial: {
+        idObraSocial: obraSocial.idObraSocial,
+        nombre: obraSocial.nombre,
+        tipo: obraSocial.tipo,
       },
-    });
-
-    if (!plan) {
-      throw new AppError('El plan especificado no pertenece a la obra social.', 400);
-    }
-
-    if (plan.estado !== 'ACTIVO') {
-      return {
-        elegible: false,
-        estadoCobertura: 'INACTIVO_O_SUSPENDIDO',
-        mensaje: `El plan "${plan.nombre}" se encuentra inactivo para nuevos servicios.`,
-        obraSocial: {
-          idObraSocial: obraSocial.idObraSocial,
-          nombre: obraSocial.nombre,
-          tipo: obraSocial.tipo,
-        },
-        plan: {
-          idPlan: plan.idPlan,
-          nombre: plan.nombre,
-        },
-        copago: { requiere: false, monto: null },
-        autorizacion: { requiere: false, motivo: null },
-      };
-    }
+      plan: {
+        idPlan: plan.idPlan,
+        nombre: plan.nombre,
+      },
+      copago: { requiere: false, monto: null },
+      autorizacion: { requiere: false, motivo: null },
+    };
   }
 
-  let paciente: any = null;
-  if (datos.idPaciente) {
-    paciente = await prisma.paciente.findUnique({
-      where: { idPaciente: datos.idPaciente },
-      include: { usuario: true },
-    });
-
-    if (paciente?.vencimientoCredencial) {
-      const hoy = new Date();
-      if (new Date(paciente.vencimientoCredencial) < hoy) {
-        return {
-          elegible: false,
-          estadoCobertura: 'VENCIDO',
-          mensaje: `La credencial médica del paciente vencio el ${paciente.vencimientoCredencial.toISOString().split('T')[0]}. Se requiere actualizacion de constancia o carnet digital.`,
-          obraSocial: {
-            idObraSocial: obraSocial.idObraSocial,
-            nombre: obraSocial.nombre,
-            tipo: obraSocial.tipo,
-          },
-          plan: plan ? { idPlan: plan.idPlan, nombre: plan.nombre } : null,
-          copago: { requiere: false, monto: null },
-          autorizacion: { requiere: false, motivo: null },
-        };
-      }
-    }
+  if (credencialVencida) {
+    return {
+      elegible: false,
+      atiendeProfesional,
+      estadoCobertura: 'VENCIDO',
+      mensaje: `La credencial médica del paciente venció el ${fechaVencimientoStr}. Se requiere actualización de constancia o carnet digital.`,
+      aviso: simulacionRequisitos.aviso,
+      requisitosConsulta: simulacionRequisitos.requisitosConsulta,
+      detalleRequisitos: simulacionRequisitos.detalleRequisitos,
+      obraSocial: {
+        idObraSocial: obraSocial.idObraSocial,
+        nombre: obraSocial.nombre,
+        tipo: obraSocial.tipo,
+      },
+      plan: plan ? { idPlan: plan.idPlan, nombre: plan.nombre } : null,
+      copago: { requiere: false, monto: null },
+      autorizacion: { requiere: false, motivo: null },
+    };
   }
 
-  // Validacion de Token Digital para Medicina Prepaga
   const esPrepaga = obraSocial.tipo === 'MEDICINA_PREPAGA';
   let tokenValidado = false;
   if (esPrepaga && datos.tokenDigital) {
@@ -757,23 +1173,28 @@ export async function validarElegibilidadAfiliado(datos: ValidarElegibilidadInpu
   const requiereAutorizacion = plan?.requiereAutorizacionPrevia ?? false;
 
   let estadoCobertura = 'HABILITADO';
-  let mensaje = 'Afiliado verificado y habilitado para atencion medica.';
+  let mensaje = simulacionRequisitos.aviso;
 
-  if (requiereCopago && requiereAutorizacion) {
+  if (!atiendeProfesional) {
+    estadoCobertura = 'PROFESIONAL_SIN_CONVENIO';
+  } else if (requiereCopago && requiereAutorizacion) {
     estadoCobertura = 'REQUIERE_COPAGO_Y_AUTORIZACION';
-    mensaje = `Cobertura activa con copago/bono ($${montoCopago ?? '0'}) y orden autorizada previa requerida.`;
   } else if (requiereCopago) {
     estadoCobertura = 'REQUIERE_COPAGO';
-    mensaje = `Cobertura activa sujeta a coseguro/bono de consulta ($${montoCopago ?? '0'}).`;
   } else if (requiereAutorizacion) {
     estadoCobertura = 'REQUIERE_AUTORIZACION';
-    mensaje = 'Cobertura activa. Requiere registrar numero de autorizacion previo para la practica.';
   }
 
   return {
-    elegible: true,
+    elegible: atiendeProfesional,
+    atiendeProfesional,
+    modalidadAtencion: simulacionRequisitos.modalidadAtencion,
+    requiereAviso: simulacionRequisitos.requiereAviso,
     estadoCobertura,
     mensaje,
+    aviso: simulacionRequisitos.aviso,
+    requisitosConsulta: simulacionRequisitos.requisitosConsulta,
+    detalleRequisitos: simulacionRequisitos.detalleRequisitos,
     obraSocial: {
       idObraSocial: obraSocial.idObraSocial,
       nombre: obraSocial.nombre,
@@ -802,7 +1223,7 @@ export async function validarElegibilidadAfiliado(datos: ValidarElegibilidadInpu
     },
     autorizacion: {
       requiere: requiereAutorizacion,
-      motivo: requiereAutorizacion ? 'Estudio o practica ambulatoria bajo plan cerrado' : null,
+      motivo: requiereAutorizacion ? 'Estudio o práctica ambulatoria bajo plan con auditoría previa' : null,
     },
   };
 }

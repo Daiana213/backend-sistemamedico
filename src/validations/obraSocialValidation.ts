@@ -99,14 +99,23 @@ export const planSchema = z.object({
 });
 
 export const validarElegibilidadSchema = z.object({
-  idObraSocial: z.coerce.number().int().positive('Debe indicar una obra social válida.'),
+  idObraSocial: z.coerce.number().int().positive('Debe indicar una obra social válida.').optional().nullable(),
   idPlan: z.coerce.number().int().positive().optional().nullable(),
   idPaciente: z.coerce.number().int().positive().optional().nullable(),
+  idProfesional: z.coerce.number().int().positive().optional().nullable(),
   numeroAfiliado: z.string().trim().max(50).optional().nullable(),
   subfijoAdherente: z.string().trim().max(10).optional().nullable(),
   tokenDigital: z.string().trim().max(20).optional().nullable(),
 });
 
+export const simularCoberturaTurnoSchema = z.object({
+  idProfesional: z.coerce.number().int().positive('Debe indicar un profesional válido.'),
+  idPaciente: z.coerce.number().int().positive().optional().nullable(),
+  idObraSocial: z.coerce.number().int().positive().optional().nullable(),
+  idPlan: z.coerce.number().int().positive().optional().nullable(),
+});
+
 export type ObraSocialInput = z.infer<typeof obraSocialSchema>;
 export type PlanInput = z.infer<typeof planSchema>;
 export type ValidarElegibilidadInput = z.infer<typeof validarElegibilidadSchema>;
+export type SimularCoberturaTurnoInput = z.infer<typeof simularCoberturaTurnoSchema>;

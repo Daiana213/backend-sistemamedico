@@ -40,6 +40,9 @@ export const registrarProfesionalSchema = z.object({
   especialidades: z
     .array(z.number({ message: msg.especialidades.numero }))
     .min(1, 'Debe asignarse al menos una especialidad.'),
+  obrasSociales: z
+    .array(z.number().int().positive())
+    .optional(),
   telefonoAlternativo: z.string().regex(/^\d{8,15}$/, MENSAJES_TIPO.telefono).optional(),
   emailAlternativo: z.string().trim().email(MENSAJES_TIPO.email).optional(),
 });

@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma';
 import { hashPassword, generarPasswordGenerica } from '../utils/password';
 import { AppError } from '../utils/AppError';
 import { RegistrarProfesionalInput } from '../validations/profesionalValidation';
+import { obtenerObrasSocialesAtendidasPorProfesional } from './obraSocialService';
 
 export async function registrarProfesional(
   datos: RegistrarProfesionalInput,
@@ -95,6 +96,17 @@ async function crearUsuarioProfesional(
       })),
     });
 
+    if (datos.obrasSociales && datos.obrasSociales.length > 0) {
+      await tx.profesionalObraSocial.createMany({
+        data: datos.obrasSociales.map((idObraSocial) => ({
+          idProfesional: nuevoProfesional.idProfesional,
+          idObraSocial,
+          fechaAsignacion: new Date(),
+          estado: 'ACTIVO',
+        })),
+      });
+    }
+
     await tx.auditoria.create({
       data: {
         idUsuario: idAdministrativo,
@@ -160,6 +172,17 @@ async function agregarRolProfesional(
       })),
     });
 
+    if (datos.obrasSociales && datos.obrasSociales.length > 0) {
+      await tx.profesionalObraSocial.createMany({
+        data: datos.obrasSociales.map((idObraSocial) => ({
+          idProfesional: nuevoProfesional.idProfesional,
+          idObraSocial,
+          fechaAsignacion: new Date(),
+          estado: 'ACTIVO',
+        })),
+      });
+    }
+
     await tx.auditoria.create({
       data: {
         idUsuario: idAdministrativo,
@@ -222,18 +245,25 @@ export async function listarProfesionales(idEspecialidad?: number, incluirInacti
     },
   });
 
-  return profesionales.map((p) => ({
-    idProfesional: p.idProfesional,
-    idUsuario: p.idUsuario,
-    nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
-    matricula: p.matricula,
-    estado: p.estado,
-    especialidades: p.especialidades.map((e) => e.especialidad.nombre),
-    especialidadesDetalle: p.especialidades.map((e) => ({
-      idEspecialidad: e.especialidad.idEspecialidad,
-      nombre: e.especialidad.nombre,
-    })),
-  }));
+  return Promise.all(
+    profesionales.map(async (p) => {
+      const obrasSociales = await obtenerObrasSocialesAtendidasPorProfesional(p.idProfesional);
+      return {
+        idProfesional: p.idProfesional,
+        idUsuario: p.idUsuario,
+        nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
+        matricula: p.matricula,
+        estado: p.estado,
+        especialidades: p.especialidades.map((e) => e.especialidad.nombre),
+        especialidadesDetalle: p.especialidades.map((e) => ({
+          idEspecialidad: e.especialidad.idEspecialidad,
+          nombre: e.especialidad.nombre,
+        })),
+        obrasSociales: obrasSociales.map((os) => os.nombre),
+        obrasSocialesDetalle: obrasSociales,
+      };
+    })
+  );
 }
 
 export async function obtenerProfesionalPorId(idProfesional: number) {
@@ -275,6 +305,7 @@ export async function obtenerProfesionalPorId(idProfesional: number) {
       idEspecialidad: e.especialidad.idEspecialidad,
       nombre: e.especialidad.nombre,
     })),
+    obrasSociales: await obtenerObrasSocialesAtendidasPorProfesional(profesional.idProfesional),
   };
 }
 
@@ -365,6 +396,22 @@ export async function editarProfesional(
         estado: 'ACTIVO',
       })),
     });
+
+    if (datos.obrasSociales !== undefined) {
+      await tx.profesionalObraSocial.deleteMany({
+        where: { idProfesional },
+      });
+      if (datos.obrasSociales.length > 0) {
+        await tx.profesionalObraSocial.createMany({
+          data: datos.obrasSociales.map((idObraSocial) => ({
+            idProfesional,
+            idObraSocial,
+            fechaAsignacion: new Date(),
+            estado: 'ACTIVO',
+          })),
+        });
+      }
+    }
 
     // 4. Log de auditoría con diff
     await tx.auditoria.create({
@@ -467,4 +514,67 @@ export async function darDeBajaProfesional(
   return {
     mensaje: 'El profesional ha sido dado de baja correctamente.',
   };
-}
+}
+
+
+export async function actualizarObrasSocialesProfesional(
+  idProfesional: number,
+  obrasSocialesIds: number[],
+  idAdministrativo: number,
+  ip?: string
+) {
+  const profesional = await prisma.profesional.findUnique({
+    where: { idProfesional },
+    include: { usuario: true },
+  });
+
+  if (!profesional) {
+    throw new AppError('Profesional no encontrado.', 404);
+  }
+
+  if (obrasSocialesIds.length > 0) {
+    const obrasValidas = await prisma.obraSocial.findMany({
+      where: { idObraSocial: { in: obrasSocialesIds }, estado: 'ACTIVO' },
+    });
+    if (obrasValidas.length !== obrasSocialesIds.length) {
+      throw new AppError('Una o más obras sociales seleccionadas no existen o están inactivas.', 400);
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.profesionalObraSocial.deleteMany({
+      where: { idProfesional },
+    });
+
+    if (obrasSocialesIds.length > 0) {
+      await tx.profesionalObraSocial.createMany({
+        data: obrasSocialesIds.map((idObraSocial) => ({
+          idProfesional,
+          idObraSocial,
+          fechaAsignacion: new Date(),
+          estado: 'ACTIVO',
+        })),
+      });
+    }
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: idAdministrativo,
+        fechaHora: new Date(),
+        accion: 'ACTUALIZAR_OBRAS_SOCIALES_PROFESIONAL',
+        tablaAfectada: 'profesional_obra_social',
+        idRegistroAfectado: idProfesional,
+        datosNuevos: JSON.stringify({ obrasSocialesIds }),
+        ip,
+        descripcion: `Actualización de obras sociales atendidas por el profesional ${profesional.usuario.nombre} ${profesional.usuario.apellido}.`,
+      },
+    });
+  });
+
+  const obrasSocialesActualizadas = await obtenerObrasSocialesAtendidasPorProfesional(idProfesional);
+
+  return {
+    mensaje: 'Obras sociales del profesional actualizadas correctamente.',
+    obrasSociales: obrasSocialesActualizadas,
+  };
+}

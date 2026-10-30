@@ -6,6 +6,7 @@ import {
   obraSocialSchema,
   planSchema,
   validarElegibilidadSchema,
+  simularCoberturaTurnoSchema,
 } from '../validations/obraSocialValidation';
 import * as obraSocialController from '../controllers/obraSocialController';
 
@@ -24,6 +25,20 @@ router.post(
   authenticate,
   validate(validarElegibilidadSchema),
   obraSocialController.validarElegibilidadController
+);
+
+// Simulación de cobertura médico-paciente y requisitos para la consulta
+router.get(
+  '/simular-cobertura',
+  authenticate,
+  obraSocialController.simularCoberturaController
+);
+
+router.post(
+  '/simular-cobertura',
+  authenticate,
+  validate(simularCoberturaTurnoSchema),
+  obraSocialController.simularCoberturaController
 );
 
 // ---- HU20: Gestión de Obras Sociales y Planes (Administrativo con permiso de gestión de usuarios) ----

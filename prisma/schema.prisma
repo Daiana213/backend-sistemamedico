@@ -76,15 +76,16 @@ model PasswordResetToken {
 }
 
 model ObraSocial {
-  idObraSocial Int              @id @default(autoincrement()) @map("id_obra_social")
-  nombre       String           @unique @db.VarChar(100)
-  descripcion  String?          @db.VarChar(255)
-  codigoRnos   String?          @map("codigo_rnos") @db.VarChar(20)
-  cuit         String?          @unique @db.VarChar(13)
-  razonSocial  String?          @map("razon_social") @db.VarChar(150)
-  tipo         TipoEntidadSalud @default(OBRA_SOCIAL_SINDICAL)
-  estado       EstadoActivo     @default(ACTIVO)
-  planes       Plan[]
+  idObraSocial  Int                     @id @default(autoincrement()) @map("id_obra_social")
+  nombre        String                  @unique @db.VarChar(100)
+  descripcion   String?                 @db.VarChar(255)
+  codigoRnos    String?                 @map("codigo_rnos") @db.VarChar(20)
+  cuit          String?                 @unique @db.VarChar(13)
+  razonSocial   String?                 @map("razon_social") @db.VarChar(150)
+  tipo          TipoEntidadSalud        @default(OBRA_SOCIAL_SINDICAL)
+  estado        EstadoActivo            @default(ACTIVO)
+  planes        Plan[]
+  profesionales ProfesionalObraSocial[]
 
   @@map("obra_social")
 }
@@ -171,11 +172,24 @@ model Profesional {
   telefonoAlternativo String?                   @map("telefono_alternativo") @db.VarChar(30)
   emailAlternativo    String?                   @map("email_alternativo") @db.VarChar(150)
   especialidades      ProfesionalEspecialidad[]
+  obrasSociales       ProfesionalObraSocial[]
   turnos              Turno[]
   agendas             AgendaProfesional[]
   estudiosCargados    EstudioMedico[]
 
   @@map("profesional")
+}
+
+model ProfesionalObraSocial {
+  idProfesional   Int          @map("id_profesional")
+  idObraSocial    Int          @map("id_obra_social")
+  fechaAsignacion DateTime     @default(now()) @map("fecha_asignacion") @db.Date
+  estado          EstadoActivo @default(ACTIVO)
+  profesional     Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: Cascade, onUpdate: NoAction)
+  obraSocial      ObraSocial   @relation(fields: [idObraSocial], references: [idObraSocial], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([idProfesional, idObraSocial])
+  @@map("profesional_obra_social")
 }
 
 model Especialidad {
