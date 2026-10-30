@@ -14,6 +14,7 @@ import {
   darDeBajaPlanObraSocial,
   reactivarPlanObraSocial,
   validarElegibilidadAfiliado,
+  simularCoberturaYRequisitosTurno,
 } from '../services/obraSocialService';
 
 function parsearIdParam(valor: string | string[] | undefined, nombreId: string): number {
@@ -123,5 +124,26 @@ export const reactivarPlanController = asyncHandler(async (req: Request, res: Re
 // Validación de elegibilidad y cobertura de afiliados
 export const validarElegibilidadController = asyncHandler(async (req: Request, res: Response) => {
   const resultado = await validarElegibilidadAfiliado(req.body);
+  res.status(200).json(resultado);
+});
+
+export const simularCoberturaController = asyncHandler(async (req: Request, res: Response) => {
+  const fuente = req.method === 'GET' ? req.query : req.body;
+  const idProfesional = parsearIdParam(fuente?.idProfesional as string, 'profesional');
+  const idPaciente = fuente?.idPaciente ? Number.parseInt(String(fuente.idPaciente), 10) : undefined;
+  const idObraSocial = fuente?.idObraSocial ? Number.parseInt(String(fuente.idObraSocial), 10) : undefined;
+  const idPlan = fuente?.idPlan ? Number.parseInt(String(fuente.idPlan), 10) : undefined;
+
+  const resultado = await simularCoberturaYRequisitosTurno(
+    {
+      idProfesional,
+      idPaciente: Number.isNaN(idPaciente as number) ? undefined : idPaciente,
+      idObraSocial: Number.isNaN(idObraSocial as number) ? undefined : idObraSocial,
+      idPlan: Number.isNaN(idPlan as number) ? undefined : idPlan,
+    },
+    req.usuario?.idUsuario,
+    req.usuario?.rolActivo
+  );
+
   res.status(200).json(resultado);
 });

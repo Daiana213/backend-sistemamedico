@@ -8,6 +8,8 @@ import {
   obtenerProfesionalPorIdController,
   editarProfesionalController,
   darDeBajaProfesionalController,
+  listarObrasSocialesProfesionalController,
+  actualizarObrasSocialesProfesionalController,
 } from '../controllers/profesionalController';
 import { registrarProfesionalSchema } from '../validations/profesionalValidation';
 import { editarProfesionalSchema } from '../validations/profesionalEdicionValidation';
@@ -55,6 +57,20 @@ router.put(
   requierePermisoGestionUsuarios,
   validate(configurarAgendaSchema),
   configurarMiAgenda
+);
+
+// Consultar y actualizar obras sociales que atiende un profesional
+router.get(
+  '/:id/obras-sociales',
+  authenticate,
+  listarObrasSocialesProfesionalController
+);
+
+router.put(
+  '/:id/obras-sociales',
+  authenticate,
+  requierePermisoGestionUsuarios,
+  actualizarObrasSocialesProfesionalController
 );
 
 // HU14: Consultar profesional por ID para edición

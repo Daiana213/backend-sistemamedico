@@ -6,6 +6,11 @@ import { CrearTurnoInput } from '../validations/turnoValidation';
 import { verificarPerfilCompletoParaTurno } from './pacienteService';
 import { validarHorarioEnAgenda } from './profesionalAgendaService';
 import {
+  simularCoberturaYRequisitosTurno,
+  obtenerObrasSocialesAtendidasPorProfesional,
+  construirRequisitosConsultaSimulados,
+} from './obraSocialService';
+import {
   enviarNotificacionTurnoReservado,
   enviarNotificacionTurnoReprogramado,
   enviarNotificacionTurnoCancelado,
@@ -196,9 +201,27 @@ export async function crearTurno(
     }
   }
 
+  const coberturaSimulada = await simularCoberturaYRequisitosTurno({
+    idProfesional: datos.idProfesional,
+    idPaciente,
+  });
+
+  const mensajeFinal = coberturaSimulada.requiereAviso
+    ? `Turno solicitado exitosamente. ${coberturaSimulada.aviso}`
+    : 'Turno solicitado exitosamente.';
+
   return {
-    mensaje: 'Turno solicitado exitosamente.',
-    turno: nuevoTurno,
+    mensaje: mensajeFinal,
+    avisoCobertura: coberturaSimulada.aviso,
+    requiereAvisoCobertura: coberturaSimulada.requiereAviso,
+    atiendeObraSocial: coberturaSimulada.atiendeObraSocial,
+    modalidadAtencion: coberturaSimulada.modalidadAtencion,
+    requisitosConsulta: coberturaSimulada.requisitosConsulta,
+    coberturaSimulada,
+    turno: {
+      ...nuevoTurno,
+      coberturaSimulada,
+    },
   };
 }
 
@@ -242,13 +265,18 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
   if (usuarioAutenticado.rolActivo === 'PACIENTE') {
     const paciente = await prisma.paciente.findUnique({
       where: { idUsuario: usuarioAutenticado.idUsuario },
+      include: {
+        plan: {
+          include: { obraSocial: true },
+        },
+      },
     });
 
     if (!paciente) {
       throw new AppError('No se encontró el perfil de paciente.', 404);
     }
 
-    return prisma.turno.findMany({
+    const turnos = await prisma.turno.findMany({
       where: { idPaciente: paciente.idPaciente },
       include: {
         profesional: {
@@ -265,6 +293,53 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
       },
       orderBy: { fechaHora: 'asc' },
     });
+
+    return Promise.all(
+      turnos.map(async (t) => {
+        const obrasProf = await obtenerObrasSocialesAtendidasPorProfesional(t.idProfesional);
+        const obraSocialPac = paciente.plan?.obraSocial || null;
+        const planPac = paciente.plan || null;
+        const atiende = obraSocialPac
+          ? obrasProf.some((os) => os.idObraSocial === obraSocialPac.idObraSocial)
+          : false;
+        const nombreProf = `Dr./Dra. ${t.profesional.usuario.nombre} ${t.profesional.usuario.apellido}`;
+        const credencialVencida = paciente.vencimientoCredencial
+          ? new Date(paciente.vencimientoCredencial) < new Date()
+          : false;
+        const fechaVencStr = paciente.vencimientoCredencial
+          ? new Date(paciente.vencimientoCredencial).toISOString().split('T')[0]
+          : null;
+
+        const coberturaSimulada = construirRequisitosConsultaSimulados({
+          obraSocial: obraSocialPac
+            ? {
+                idObraSocial: obraSocialPac.idObraSocial,
+                nombre: obraSocialPac.nombre,
+                tipo: obraSocialPac.tipo,
+                codigoRnos: obraSocialPac.codigoRnos,
+              }
+            : null,
+          plan: planPac
+            ? {
+                idPlan: planPac.idPlan,
+                nombre: planPac.nombre,
+                requiereCopago: planPac.requiereCopago,
+                montoCopago: planPac.montoCopago !== null ? Number(planPac.montoCopago) : null,
+                requiereAutorizacionPrevia: planPac.requiereAutorizacionPrevia,
+              }
+            : null,
+          atiendeProfesional: atiende,
+          nombreProfesional: nombreProf,
+          credencialVencida,
+          fechaVencimiento: fechaVencStr,
+        });
+
+        return {
+          ...t,
+          coberturaSimulada,
+        };
+      })
+    );
   }
 
   if (usuarioAutenticado.rolActivo === 'PROFESIONAL') {
