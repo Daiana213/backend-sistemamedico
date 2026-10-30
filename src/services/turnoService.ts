@@ -777,3 +777,95 @@ export async function reprogramarTurnoAdmin(
   };
 }
 
+
+
+/**
+ * Recepción de Pacientes: Registro de llegada y presencia en sala de espera por el personal administrativo.
+ * Actualiza el turno a presente: true, fechaLlegada: now y estado: CONFIRMADO (si estaba SOLICITADO).
+ */
+export async function registrarRecepcionTurno(
+  idTurno: number,
+  usuarioAutenticado: AccessTokenPayload,
+  ip?: string,
+  datosAdicionales?: { numeroAutorizacion?: string; tokenDigital?: string }
+) {
+  if (usuarioAutenticado.rolActivo !== 'ADMINISTRATIVO') {
+    throw new AppError(
+      'Solo el personal administrativo puede registrar la llegada de pacientes en recepción.',
+      403
+    );
+  }
+
+  const turno = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: {
+      paciente: { include: { usuario: true } },
+      profesional: { include: { usuario: true } },
+    },
+  });
+
+  if (!turno) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  if (turno.estado === 'CANCELADO' || turno.estado === 'REPROGRAMADO') {
+    throw new AppError(
+      `No se puede registrar la recepción de un turno con estado ${turno.estado}.`,
+      400
+    );
+  }
+
+  const nuevoEstado = turno.estado === 'SOLICITADO' ? 'CONFIRMADO' : turno.estado;
+
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const dataUpdate: any = {
+      presente: true,
+      fechaLlegada: new Date(),
+      estado: nuevoEstado,
+    };
+    if (datosAdicionales?.numeroAutorizacion) {
+      dataUpdate.numeroAutorizacion = datosAdicionales.numeroAutorizacion.trim();
+    }
+    if (datosAdicionales?.tokenDigital) {
+      dataUpdate.tokenDigital = datosAdicionales.tokenDigital.trim();
+    }
+
+    const t = await tx.turno.update({
+      where: { idTurno },
+      data: dataUpdate,
+      include: {
+        paciente: { include: { usuario: true } },
+        profesional: { include: { usuario: true } },
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: usuarioAutenticado.idUsuario,
+        fechaHora: new Date(),
+        accion: 'RECEPCION_PACIENTE',
+        tablaAfectada: 'turno',
+        idRegistroAfectado: idTurno,
+        datosAnteriores: JSON.stringify({
+          estado: turno.estado,
+          presente: turno.presente,
+          fechaLlegada: turno.fechaLlegada,
+        }),
+        datosNuevos: JSON.stringify({
+          estado: nuevoEstado,
+          presente: true,
+          fechaLlegada: t.fechaLlegada,
+        }),
+        ip,
+        descripcion: `Paciente ${turno.paciente.usuario.nombre} ${turno.paciente.usuario.apellido} recepcionado en sala de espera para el turno #${idTurno}.`,
+      },
+    });
+
+    return t;
+  });
+
+  return {
+    mensaje: 'Llegada del paciente registrada correctamente. El paciente se encuentra en sala de espera.',
+    turno: actualizado,
+  };
+}

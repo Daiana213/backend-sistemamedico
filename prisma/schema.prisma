@@ -76,23 +76,30 @@ model PasswordResetToken {
 }
 
 model ObraSocial {
-  idObraSocial Int          @id @default(autoincrement()) @map("id_obra_social")
-  nombre       String       @unique @db.VarChar(100)
-  descripcion  String?      @db.VarChar(255)
-  estado       EstadoActivo
+  idObraSocial Int              @id @default(autoincrement()) @map("id_obra_social")
+  nombre       String           @unique @db.VarChar(100)
+  descripcion  String?          @db.VarChar(255)
+  codigoRnos   String?          @map("codigo_rnos") @db.VarChar(20)
+  cuit         String?          @unique @db.VarChar(13)
+  razonSocial  String?          @map("razon_social") @db.VarChar(150)
+  tipo         TipoEntidadSalud @default(OBRA_SOCIAL_SINDICAL)
+  estado       EstadoActivo     @default(ACTIVO)
   planes       Plan[]
 
   @@map("obra_social")
 }
 
 model Plan {
-  idPlan       Int          @id @default(autoincrement()) @map("id_plan")
-  idObraSocial Int          @map("id_obra_social")
-  nombre       String       @db.VarChar(100)
-  descripcion  String?      @db.VarChar(255)
-  estado       EstadoActivo
-  pacientes    Paciente[]
-  obraSocial   ObraSocial   @relation(fields: [idObraSocial], references: [idObraSocial], onDelete: NoAction, onUpdate: NoAction)
+  idPlan                     Int          @id @default(autoincrement()) @map("id_plan")
+  idObraSocial               Int          @map("id_obra_social")
+  nombre                     String       @db.VarChar(100)
+  descripcion                String?      @db.VarChar(255)
+  requiereCopago             Boolean      @default(false) @map("requiere_copago")
+  montoCopago                Decimal?     @map("monto_copago") @db.Decimal(10, 2)
+  requiereAutorizacionPrevia Boolean      @default(false) @map("requiere_autorizacion_previa")
+  estado                     EstadoActivo @default(ACTIVO)
+  pacientes                  Paciente[]
+  obraSocial                 ObraSocial   @relation(fields: [idObraSocial], references: [idObraSocial], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("plan")
 }
@@ -110,10 +117,13 @@ model Paciente {
   responsables        PacienteResponsable[] @relation("PacienteDeResponsable")
   aCargoDe            PacienteResponsable[] @relation("ResponsableDePaciente")
   telefonoAlternativo String?               @map("telefono_alternativo") @db.VarChar(30)
-  emailAlternativo    String?               @map("email_alternativo") @db.VarChar(150)
-  turnos              Turno[]
-  antecedentes        AntecedentesMedicos?
-  estudios            EstudioMedico[]
+  emailAlternativo      String?               @map("email_alternativo") @db.VarChar(150)
+  numeroAfiliado        String?               @map("numero_afiliado") @db.VarChar(50)
+  subfijoAdherente      String?               @map("subfijo_adherente") @db.VarChar(10)
+  vencimientoCredencial DateTime?             @map("vencimiento_credencial") @db.Date
+  turnos                Turno[]
+  antecedentes          AntecedentesMedicos?
+  estudios              EstudioMedico[]
 
   @@map("paciente")
 }
@@ -156,12 +166,14 @@ model Profesional {
   estado              EstadoActivo
   fechaAlta           DateTime                  @map("fecha_alta") @db.Date
   fechaBaja           DateTime?                 @map("fecha_baja") @db.Date
+  puedeCargarEstudios Boolean                   @default(false) @map("puede_cargar_estudios")
   usuario             Usuario                   @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
   telefonoAlternativo String?                   @map("telefono_alternativo") @db.VarChar(30)
   emailAlternativo    String?                   @map("email_alternativo") @db.VarChar(150)
   especialidades      ProfesionalEspecialidad[]
   turnos              Turno[]
   agendas             AgendaProfesional[]
+  estudiosCargados    EstudioMedico[]
 
   @@map("profesional")
 }
@@ -202,15 +214,22 @@ model AgendaProfesional {
 }
 
 model Turno {
-  idTurno           Int          @id @default(autoincrement()) @map("id_turno")
-  idPaciente        Int          @map("id_paciente")
-  idProfesional     Int          @map("id_profesional")
-  fechaHora         DateTime     @map("fecha_hora") @db.Timestamp(6)
-  estado            EstadoTurno  @default(SOLICITADO)
-  motivoCancelacion String?      @map("motivo_cancelacion") @db.VarChar(500)
-  consulta          Consulta?
-  paciente          Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: NoAction, onUpdate: NoAction)
-  profesional       Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: NoAction, onUpdate: NoAction)
+  idTurno             Int          @id @default(autoincrement()) @map("id_turno")
+  idPaciente          Int          @map("id_paciente")
+  idProfesional       Int          @map("id_profesional")
+  fechaHora           DateTime     @map("fecha_hora") @db.Timestamp(6)
+  estado              EstadoTurno  @default(SOLICITADO)
+  motivoCancelacion   String?      @map("motivo_cancelacion") @db.VarChar(500)
+  recordatorioEnviado Boolean      @default(false) @map("recordatorio_enviado")
+  fechaRecordatorio   DateTime?    @map("fecha_recordatorio") @db.Timestamp(6)
+  presente            Boolean      @default(false) @map("presente")
+  fechaLlegada        DateTime?    @map("fecha_llegada") @db.Timestamp(6)
+  fechaCreacion       DateTime     @default(now()) @map("fecha_creacion") @db.Timestamp(6)
+  numeroAutorizacion  String?      @map("numero_autorizacion") @db.VarChar(50)
+  tokenDigital        String?      @map("token_digital") @db.VarChar(20)
+  consulta            Consulta?
+  paciente            Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: NoAction, onUpdate: NoAction)
+  profesional         Profesional  @relation(fields: [idProfesional], references: [idProfesional], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([idProfesional, fechaHora], name: "idx_turno_profesional_fechahora")
   @@index([idProfesional, fechaHora, estado], name: "idx_turno_profesional_fechahora_estado")
@@ -257,6 +276,16 @@ model Auditoria {
   usuario            Usuario? @relation(fields: [idUsuario], references: [idUsuario], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("auditoria")
+}
+
+enum TipoEntidadSalud {
+  OBRA_SOCIAL_SINDICAL
+  MEDICINA_PREPAGA
+  OBRA_SOCIAL_PROVINCIAL
+  PAMI_INSSJP
+  OTRA
+
+  @@map("tipo_entidad_salud")
 }
 
 enum EstadoActivo {
@@ -325,6 +354,8 @@ model CodigoVerificacion {
 model EstudioMedico {
   idEstudio          Int          @id @default(autoincrement()) @map("id_estudio")
   idPaciente         Int          @map("id_paciente")
+  idProfesional      Int?         @map("id_profesional")
+  numeroAutorizacion String?      @map("numero_autorizacion") @db.VarChar(50)
   nombre             String       @db.VarChar(150)
   codigo             String       @db.VarChar(150)
   observacion        String?      @db.Text
@@ -332,6 +363,7 @@ model EstudioMedico {
   fechaCarga         DateTime     @default(now()) @map("fecha_carga") @db.Timestamp(6)
   fechaActualizacion DateTime     @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamp(6)
   paciente           Paciente     @relation(fields: [idPaciente], references: [idPaciente], onDelete: Cascade, onUpdate: NoAction)
+  profesional        Profesional? @relation(fields: [idProfesional], references: [idProfesional], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([idPaciente, estado], name: "idx_estudio_medico_paciente_estado")
   @@map("estudio_medico")

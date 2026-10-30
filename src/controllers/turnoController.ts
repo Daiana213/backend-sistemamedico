@@ -119,3 +119,33 @@ export const reprogramarAdmin = asyncHandler(async (req: Request, res: Response)
   res.status(200).json(resultado);
 });
 
+
+import * as recordatorioService from '../services/recordatorioService';
+
+export const registrarRecepcion = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.usuario) {
+    throw new AppError('No autorizado.', 401);
+  }
+  const idTurno = parseInt(req.params.id as string, 10);
+  if (isNaN(idTurno)) {
+    throw new AppError('ID de turno inválido', 400);
+  }
+
+  const resultado = await turnoService.registrarRecepcionTurno(idTurno, req.usuario, req.ip, req.body);
+  res.status(200).json(resultado);
+});
+
+export const procesarRecordatorios = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.usuario) {
+    throw new AppError('No autorizado.', 401);
+  }
+  if (req.usuario.rolActivo !== 'ADMINISTRATIVO') {
+    throw new AppError('Permiso denegado.', 403);
+  }
+
+  const resultado = await recordatorioService.procesarRecordatoriosProximos(req.ip);
+  res.status(200).json({
+    mensaje: 'Procesamiento de recordatorios 24 hs ejecutado.',
+    ...resultado,
+  });
+});
