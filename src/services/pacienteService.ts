@@ -17,6 +17,34 @@ interface ArchivoDocumento {
   rutaArchivo: string;
 }
 
+export function evaluarEstadoPerfilPaciente(paciente: {
+  usuario?: { email: string | null } | null;
+  sexo: string | null;
+  idPlan: number | null;
+  numeroAfiliado?: string | null;
+}) {
+  const camposFaltantes: string[] = [];
+
+  if (!paciente.usuario?.email) {
+    camposFaltantes.push('email');
+  }
+  if (!paciente.sexo) {
+    camposFaltantes.push('sexo');
+  }
+  if (paciente.idPlan && paciente.numeroAfiliado !== undefined && !paciente.numeroAfiliado) {
+    camposFaltantes.push('numeroAfiliado');
+  }
+
+  const tieneObraSocial = Boolean(paciente.idPlan);
+
+  return {
+    perfilCompleto: camposFaltantes.length === 0,
+    camposFaltantes,
+    tieneObraSocial,
+    modalidadCobertura: tieneObraSocial ? ('CON_OBRA_SOCIAL' as const) : ('PARTICULAR' as const),
+  };
+}
+
 export async function registrarPaciente(datos: RegistrarPacienteInput, archivo?: ArchivoDocumento) {
   const usuarioExistente = await prisma.usuario.findUnique({
     where: { dni: datos.dni },
@@ -24,16 +52,16 @@ export async function registrarPaciente(datos: RegistrarPacienteInput, archivo?:
   });
 
   if (usuarioExistente) {
-    // Ya es paciente — ir al login
     if (usuarioExistente.paciente) {
       throw new AppError(MENSAJE_DNI_DUPLICADO, 409);
     }
 
-    // Tiene otro rol — agregamos rol paciente al usuario existente
     return agregarRolPaciente(usuarioExistente.idUsuario, datos, archivo);
   }
 
-  if (datos.idPlan) {
+  const sinObraSocial = datos.tieneObraSocial === false || !datos.idPlan;
+
+  if (!sinObraSocial && datos.idPlan) {
     const plan = await prisma.plan.findFirst({
       where: {
         idPlan: datos.idPlan,
@@ -69,14 +97,14 @@ export async function registrarPaciente(datos: RegistrarPacienteInput, archivo?:
   return registrarPacienteMenor(datos, rolPaciente.idRol, archivo);
 }
 
-// ─── Usuario existente con otro rol ──────────────────────────────────────────
-
 async function agregarRolPaciente(
   idUsuario: number,
   datos: RegistrarPacienteInput,
   archivo?: ArchivoDocumento
 ) {
-  if (datos.idPlan) {
+  const sinObraSocial = datos.tieneObraSocial === false || !datos.idPlan;
+
+  if (!sinObraSocial && datos.idPlan) {
     const plan = await prisma.plan.findFirst({
       where: {
         idPlan: datos.idPlan,
@@ -102,7 +130,10 @@ async function agregarRolPaciente(
         idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
         sexo: datos.sexo ?? null,
-        idPlan: datos.idPlan ?? null,
+        idPlan: sinObraSocial ? null : (datos.idPlan ?? null),
+        numeroAfiliado: sinObraSocial ? null : (datos.numeroAfiliado ?? null),
+        subfijoAdherente: sinObraSocial ? null : (datos.subfijoAdherente ?? null),
+        vencimientoCredencial: sinObraSocial ? null : (datos.vencimientoCredencial ?? null),
         estado: esMenor ? 'PENDIENTE_APROBACION' : 'ACTIVO',
         fechaRegistro: new Date(),
         telefonoAlternativo: datos.telefonoAlternativo ?? null,
@@ -162,9 +193,10 @@ async function agregarRolPaciente(
       : 'Registro completado con éxito.',
   };
 }
-// Escenario 1: registro de un paciente adulto, alta directa
+
 async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: number) {
   const passwordHash = await hashPassword(datos.password);
+  const sinObraSocial = datos.tieneObraSocial === false || !datos.idPlan;
 
   const usuario = await prisma.$transaction(async (tx) => {
     const nuevoUsuario = await tx.usuario.create({
@@ -186,7 +218,10 @@ async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: num
         idUsuario: nuevoUsuario.idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
         sexo: datos.sexo ?? null,
-        idPlan: datos.idPlan ?? null,
+        idPlan: sinObraSocial ? null : (datos.idPlan ?? null),
+        numeroAfiliado: sinObraSocial ? null : (datos.numeroAfiliado ?? null),
+        subfijoAdherente: sinObraSocial ? null : (datos.subfijoAdherente ?? null),
+        vencimientoCredencial: sinObraSocial ? null : (datos.vencimientoCredencial ?? null),
         estado: 'ACTIVO',
         fechaRegistro: new Date(),
       },
@@ -202,7 +237,6 @@ async function registrarPacienteAdulto(datos: RegistrarPacienteInput, idRol: num
   return { idUsuario: usuario.idUsuario, mensaje: 'Registro completado con éxito' };
 }
 
-// Escenarios 4.1 y 4.2: registro de un menor con adulto responsable
 async function registrarPacienteMenor(
   datos: RegistrarPacienteInput,
   idRol: number,
@@ -212,7 +246,6 @@ async function registrarPacienteMenor(
     throw new AppError('Debe cargar el documento', 400);
   }
 
-  // Escenario 4.2: el DNI del adulto responsable debe pertenecer a un paciente ya registrado
   const usuarioResponsable = await prisma.usuario.findUnique({
     where: { dni: datos.dniResponsable! },
     include: { paciente: true },
@@ -223,6 +256,7 @@ async function registrarPacienteMenor(
   }
 
   const passwordHash = await hashPassword(datos.password);
+  const sinObraSocial = datos.tieneObraSocial === false || !datos.idPlan;
 
   const usuario = await prisma.$transaction(async (tx) => {
     const nuevoUsuario = await tx.usuario.create({
@@ -244,8 +278,11 @@ async function registrarPacienteMenor(
         idUsuario: nuevoUsuario.idUsuario,
         fechaNacimiento: datos.fechaNacimiento,
         sexo: datos.sexo ?? null,
-        idPlan: datos.idPlan ?? null,
-        estado: 'PENDIENTE_APROBACION', // Escenario 4.1: queda pendiente de aprobación por el administrador
+        idPlan: sinObraSocial ? null : (datos.idPlan ?? null),
+        numeroAfiliado: sinObraSocial ? null : (datos.numeroAfiliado ?? null),
+        subfijoAdherente: sinObraSocial ? null : (datos.subfijoAdherente ?? null),
+        vencimientoCredencial: sinObraSocial ? null : (datos.vencimientoCredencial ?? null),
+        estado: 'PENDIENTE_APROBACION',
         fechaRegistro: new Date(),
       },
     });
@@ -285,8 +322,6 @@ async function registrarPacienteMenor(
   };
 }
 
-// ─── Perfil de Paciente ───────────────────────────────────────────────────────
-
 export async function actualizarPerfilPaciente(
   idUsuario: number,
   datos: ActualizarPerfilPacienteInput
@@ -307,7 +342,6 @@ export async function actualizarPerfilPaciente(
     throw new AppError('No se encontró el perfil de paciente asociado a este usuario.', 404);
   }
 
-  // Si se envió email, verificar que no esté duplicado en otro usuario
   if (datos.email && datos.email !== paciente.usuario.email) {
     const usuarioConEmail = await prisma.usuario.findFirst({
       where: {
@@ -321,8 +355,10 @@ export async function actualizarPerfilPaciente(
     }
   }
 
-  // Si se envió idPlan, validar que exista activo
-  if (datos.idPlan) {
+  const eliminaObraSocial =
+    datos.tieneObraSocial === false || datos.idObraSocial === null || datos.idPlan === null;
+
+  if (!eliminaObraSocial && datos.idPlan) {
     const plan = await prisma.plan.findFirst({
       where: {
         idPlan: datos.idPlan,
@@ -336,7 +372,6 @@ export async function actualizarPerfilPaciente(
     }
   }
 
-  // Actualización en transacción
   await prisma.$transaction(async (tx) => {
     if (datos.email !== undefined || datos.telefono !== undefined) {
       await tx.usuario.update({
@@ -348,25 +383,46 @@ export async function actualizarPerfilPaciente(
       });
     }
 
-    if (
-      datos.sexo !== undefined ||
-      datos.idPlan !== undefined ||
-      datos.telefonoAlternativo !== undefined ||
-      datos.emailAlternativo !== undefined
-    ) {
+    const datosPacienteUpdate: Record<string, unknown> = {};
+
+    if (datos.sexo !== undefined) {
+      datosPacienteUpdate.sexo = datos.sexo;
+    }
+    if (datos.telefonoAlternativo !== undefined) {
+      datosPacienteUpdate.telefonoAlternativo = datos.telefonoAlternativo;
+    }
+    if (datos.emailAlternativo !== undefined) {
+      datosPacienteUpdate.emailAlternativo = datos.emailAlternativo;
+    }
+
+    if (eliminaObraSocial) {
+      datosPacienteUpdate.idPlan = null;
+      datosPacienteUpdate.numeroAfiliado = null;
+      datosPacienteUpdate.subfijoAdherente = null;
+      datosPacienteUpdate.vencimientoCredencial = null;
+    } else {
+      if (datos.idPlan !== undefined) {
+        datosPacienteUpdate.idPlan = datos.idPlan;
+      }
+      if (datos.numeroAfiliado !== undefined) {
+        datosPacienteUpdate.numeroAfiliado = datos.numeroAfiliado;
+      }
+      if (datos.subfijoAdherente !== undefined) {
+        datosPacienteUpdate.subfijoAdherente = datos.subfijoAdherente;
+      }
+      if (datos.vencimientoCredencial !== undefined) {
+        datosPacienteUpdate.vencimientoCredencial = datos.vencimientoCredencial;
+      }
+    }
+
+    if (Object.keys(datosPacienteUpdate).length > 0) {
       await tx.paciente.update({
         where: { idPaciente: paciente.idPaciente },
-        data: {
-          ...(datos.sexo !== undefined ? { sexo: datos.sexo } : {}),
-          ...(datos.idPlan !== undefined ? { idPlan: datos.idPlan } : {}),
-          ...(datos.telefonoAlternativo !== undefined ? { telefonoAlternativo: datos.telefonoAlternativo } : {}),
-          ...(datos.emailAlternativo !== undefined ? { emailAlternativo: datos.emailAlternativo } : {}),
-        },
+        data: datosPacienteUpdate,
       });
     }
   });
 
-  // Retornar perfil actualizado
   const pacienteActualizado = await prisma.paciente.findUnique({
     where: { idPaciente: paciente.idPaciente },
     include: {
@@ -389,15 +445,28 @@ export async function actualizarPerfilPaciente(
     },
   });
 
-  const perfilCompleto = Boolean(
-    pacienteActualizado?.usuario.email &&
-    pacienteActualizado?.sexo &&
-    pacienteActualizado?.idPlan
+  const estadoPerfil = evaluarEstadoPerfilPaciente(
+    pacienteActualizado ?? {
+      usuario: null,
+      sexo: null,
+      idPlan: null,
+      numeroAfiliado: null,
+    }
   );
+
+  if (estadoPerfil.perfilCompleto && paciente.usuario.primerLogin) {
+    await prisma.usuario.update({
+      where: { idUsuario },
+      data: { primerLogin: false },
+    });
+  }
 
   return {
     mensaje: 'Perfil de paciente actualizado exitosamente.',
-    perfilCompleto,
+    perfilCompleto: estadoPerfil.perfilCompleto,
+    camposFaltantes: estadoPerfil.camposFaltantes,
+    tieneObraSocial: estadoPerfil.tieneObraSocial,
+    modalidadCobertura: estadoPerfil.modalidadCobertura,
     paciente: pacienteActualizado,
   };
 }
@@ -429,30 +498,23 @@ export async function obtenerPerfilPaciente(idUsuario: number) {
     throw new AppError('No se encontró el perfil de paciente asociado a este usuario.', 404);
   }
 
-  const faltantes: string[] = [];
-  if (!paciente.usuario.email) faltantes.push('email');
-  if (!paciente.sexo) faltantes.push('sexo');
-  if (!paciente.idPlan) faltantes.push('obraSocial/plan');
+  const estadoPerfil = evaluarEstadoPerfilPaciente(paciente);
 
   return {
     paciente,
-    perfilCompleto: faltantes.length === 0,
-    camposFaltantes: faltantes,
+    perfilCompleto: estadoPerfil.perfilCompleto,
+    camposFaltantes: estadoPerfil.camposFaltantes,
+    tieneObraSocial: estadoPerfil.tieneObraSocial,
+    modalidadCobertura: estadoPerfil.modalidadCobertura,
   };
 }
 
-/**
- * Valida si el paciente cuenta con todos los datos requeridos para poder solicitar o reservar un turno:
- * - Email (en Usuario)
- * - Sexo (en Paciente)
- * - Obra social / Plan (en Paciente)
- * Si falta alguno, arroja un AppError con código 403.
- */
 export function verificarPerfilCompletoParaTurno(
   paciente: {
     usuario?: { email: string | null } | null;
     sexo: string | null;
     idPlan: number | null;
+    numeroAfiliado?: string | null;
   },
   esAdmin = false
 ) {
@@ -464,8 +526,8 @@ export function verificarPerfilCompletoParaTurno(
   if (!paciente.sexo) {
     camposFaltantes.push('sexo');
   }
-  if (!paciente.idPlan) {
-    camposFaltantes.push('obra social / plan');
+  if (paciente.idPlan && paciente.numeroAfiliado !== undefined && !paciente.numeroAfiliado) {
+    camposFaltantes.push('número de afiliado de la obra social');
   }
 
   if (camposFaltantes.length > 0) {
@@ -511,7 +573,7 @@ export async function buscarPacientePorDni(dni: string) {
     throw new AppError('No se encontró ningún paciente con el DNI proporcionado.', 404);
   }
 
-  const perfilCompleto = Boolean(paciente.usuario.email && paciente.sexo && paciente.idPlan);
+  const estadoPerfil = evaluarEstadoPerfilPaciente(paciente);
 
   return {
     idPaciente: paciente.idPaciente,
@@ -522,7 +584,10 @@ export async function buscarPacientePorDni(dni: string) {
     planObraSocial: paciente.plan
       ? `${paciente.plan.obraSocial.nombre} - ${paciente.plan.nombre}`
       : 'Particular',
+    tieneObraSocial: estadoPerfil.tieneObraSocial,
+    modalidadCobertura: estadoPerfil.modalidadCobertura,
     estado: paciente.estado,
-    perfilCompleto,
+    perfilCompleto: estadoPerfil.perfilCompleto,
+    camposFaltantes: estadoPerfil.camposFaltantes,
   };
 }

@@ -16,7 +16,6 @@ import { authorize } from '../middlewares/authorize';
 
 const router = Router();
 
-// Registro de paciente (con documento opcional si es menor)
 router.post(
   '/registro',
   uploadDocumentoResponsable.single('documento'),
@@ -24,14 +23,12 @@ router.post(
   pacienteController.registrar
 );
 
-// Obtener datos del perfil del paciente autenticado
 router.get(
   '/perfil',
   authenticate,
   pacienteController.obtenerPerfil
 );
 
-// Buscar paciente por DNI (Profesionales / Administrativos)
 router.get(
   '/buscar',
   authenticate,
@@ -39,7 +36,6 @@ router.get(
   pacienteController.buscarPorDni
 );
 
-// Actualizar datos del perfil del paciente (para completar email, sexo, obra social/plan)
 router.put(
   '/perfil',
   authenticate,
@@ -47,7 +43,13 @@ router.put(
   pacienteController.actualizarPerfil
 );
 
-// Reenvío de documentación para menores observados/rechazados (requiere paciente responsable autenticado)
+router.patch(
+  '/perfil',
+  authenticate,
+  validate(actualizarPerfilPacienteSchema),
+  pacienteController.actualizarPerfil
+);
+
 router.patch(
   '/menores/:id/reenviar-documentacion',
   authenticate,
@@ -55,7 +57,6 @@ router.patch(
   reenviarDoc
 );
 
-// Obtener menores a cargo del paciente adulto autenticado
 router.get(
   '/mis-menores',
   authenticate,
@@ -63,7 +64,6 @@ router.get(
   listarMisMenores
 );
 
-// HU17: Obtener antecedentes médicos
 router.get(
   '/me/antecedentes',
   authenticate,
@@ -71,7 +71,6 @@ router.get(
   antecedentesController.getAntecedentes
 );
 
-// HU17: Crear o actualizar antecedentes médicos
 router.put(
   '/me/antecedentes',
   authenticate,
@@ -80,7 +79,6 @@ router.put(
   antecedentesController.upsertAntecedentes
 );
 
-// HU21: Gestión de códigos de estudios médicos del paciente ("Mis estudios")
 router.get(
   '/me/estudios',
   authenticate,
@@ -122,7 +120,6 @@ router.delete(
   estudioController.eliminarEstudio
 );
 
-// HU8 y HU21 Escenario 3: Consulta de Historia Clínica y estudios del paciente por el profesional con vínculo
 router.get(
   '/:idPaciente/historia-clinica',
   authenticate,

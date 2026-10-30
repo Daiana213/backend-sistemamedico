@@ -11,6 +11,7 @@ import {
 } from '../utils/jwt';
 import { AppError } from '../utils/AppError';
 import { enviarRecuperacionPasswordEmail } from './email.service';
+import { evaluarEstadoPerfilPaciente } from './pacienteService';
 import {
   LoginInput,
   SeleccionarRolInput,
@@ -32,7 +33,6 @@ interface RolDisponible {
   permisos?: string[];
 }
 
-// Vuelve a traer al usuario con todo lo necesario para resolver sus roles
 async function buscarUsuarioCompleto(idUsuario: number) {
   return prisma.usuario.findUnique({
     where: { idUsuario },
@@ -45,8 +45,6 @@ async function buscarUsuarioCompleto(idUsuario: number) {
   });
 }
 
-// Determina qué roles están realmente disponibles HOY para este usuario,
-// cruzando usuario_rol.estado con el estado específico de cada tabla de rol.
 function resolverRolesDisponibles(
   usuario: NonNullable<Awaited<ReturnType<typeof buscarUsuarioCompleto>>>,
 ): RolDisponible[] {
@@ -74,8 +72,12 @@ function resolverRolesDisponibles(
   return disponibles;
 }
 
-// Emite access + refresh token para un rol ya resuelto, y persiste el refresh
-async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLogin: boolean) {
+async function emitirTokens(
+  idUsuario: number,
+  rolInfo: RolDisponible,
+  primerLogin: boolean,
+  usuario?: NonNullable<Awaited<ReturnType<typeof buscarUsuarioCompleto>>>
+) {
   const esProfesional = rolInfo.rol === 'PROFESIONAL';
 
   const accessToken = signAccessToken({
@@ -88,7 +90,6 @@ async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLog
 
   const refreshToken = signRefreshToken({ idUsuario, rolActivo: rolInfo.rol }, esProfesional);
 
-  // Para los profesionales médicos, la sesión y el refresh token no expiran (100 años)
   const fechaExpiracion = esProfesional
     ? new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000)
     : new Date(Date.now() + REFRESH_EXPIRES_MS);
@@ -103,7 +104,30 @@ async function emitirTokens(idUsuario: number, rolInfo: RolDisponible, primerLog
     },
   });
 
-  return { accessToken, refreshToken, rolActivo: rolInfo.rol, primerLogin };
+  let infoPerfilPaciente = {};
+  if (rolInfo.rol === 'PACIENTE' && usuario?.paciente) {
+    const estadoPerfil = evaluarEstadoPerfilPaciente({
+      usuario: { email: usuario.email },
+      sexo: usuario.paciente.sexo,
+      idPlan: usuario.paciente.idPlan,
+      numeroAfiliado: usuario.paciente.numeroAfiliado,
+    });
+    infoPerfilPaciente = {
+      perfilCompleto: estadoPerfil.perfilCompleto,
+      requiereCompletarPerfil: !estadoPerfil.perfilCompleto,
+      camposFaltantes: estadoPerfil.camposFaltantes,
+      tieneObraSocial: estadoPerfil.tieneObraSocial,
+      modalidadCobertura: estadoPerfil.modalidadCobertura,
+    };
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    rolActivo: rolInfo.rol,
+    primerLogin,
+    ...infoPerfilPaciente,
+  };
 }
 
 export async function login({ dni, password }: LoginInput) {
@@ -166,10 +190,9 @@ export async function login({ dni, password }: LoginInput) {
   }
 
   if (rolesDisponibles.length === 1) {
-    return emitirTokens(usuario.idUsuario, rolesDisponibles[0], usuario.primerLogin);
+    return emitirTokens(usuario.idUsuario, rolesDisponibles[0], usuario.primerLogin, usuario);
   }
 
-  // Más de un rol usable: pre-sesión, el cliente elige después
   const preSessionToken = signPreSessionToken({ idUsuario: usuario.idUsuario });
   return {
     requiereSeleccionRol: true as const,
@@ -193,7 +216,6 @@ export async function seleccionarRol({ preSessionToken, rol }: SeleccionarRolInp
     throw new AppError('Usuario no encontrado', 404);
   }
 
-  // Se revalida contra la base, no se confía en lo que mandó el cliente antes
   const rolesDisponibles = resolverRolesDisponibles(usuario);
   const rolElegido = rolesDisponibles.find((r) => r.rol === rol);
 
@@ -201,7 +223,7 @@ export async function seleccionarRol({ preSessionToken, rol }: SeleccionarRolInp
     throw new AppError('No tenés acceso a ese rol', 403);
   }
 
-  return emitirTokens(usuario.idUsuario, rolElegido, usuario.primerLogin);
+  return emitirTokens(usuario.idUsuario, rolElegido, usuario.primerLogin, usuario);
 }
 
 export async function refresh(refreshToken: string) {
@@ -216,8 +238,6 @@ export async function refresh(refreshToken: string) {
     throw new AppError('El refresh token es inválido o expiró', 401);
   }
 
-  // Se valida también contra la base, no solo la firma del JWT:
-  // esto es lo que permite revocar un refresh token antes de su expiración natural
   const tokenHash = hashToken(refreshToken);
   const registro = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
@@ -268,8 +288,6 @@ export async function refresh(refreshToken: string) {
 export async function logout(refreshToken: string) {
   const tokenHash = hashToken(refreshToken);
 
-  // updateMany, no update: si el token ya no existe o ya estaba revocado,
-  // no tiene sentido tirar un error — el resultado deseado ya se cumple
   await prisma.refreshToken.updateMany({
     where: { tokenHash, revocado: false },
     data: { revocado: true },
@@ -288,8 +306,6 @@ export async function solicitarRecuperacionPassword({ dni, email }: SolicitarRec
     );
   }
 
-  // Seguridad: siempre devolvemos el mismo mensaje, aunque el usuario no exista
-  // o el email no coincida, para evitar enumeración de usuarios.
   if (!usuario || !usuario.email || usuario.email.toLowerCase() !== email.toLowerCase()) {
     return {
       mensaje: MENSAJE_RECUPERACION_ENVIADA,
@@ -302,7 +318,6 @@ export async function solicitarRecuperacionPassword({ dni, email }: SolicitarRec
     };
   }
 
-  // Invalidamos cualquier token de recuperación previo para este usuario
   await prisma.passwordResetToken.updateMany({
     where: {
       idUsuario: usuario.idUsuario,
@@ -429,8 +444,8 @@ export async function cambiarPassword(
   const usuarioCompleto = await buscarUsuarioCompleto(idUsuario);
   const rolesDisponibles = usuarioCompleto ? resolverRolesDisponibles(usuarioCompleto) : [];
   let tokens = null;
-  if (rolesDisponibles.length === 1) {
-    tokens = await emitirTokens(idUsuario, rolesDisponibles[0], false);
+  if (rolesDisponibles.length === 1 && usuarioCompleto) {
+    tokens = await emitirTokens(idUsuario, rolesDisponibles[0], false, usuarioCompleto);
   }
 
   return {
