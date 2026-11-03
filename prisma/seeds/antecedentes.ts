@@ -3,31 +3,54 @@ import { PrismaClient } from '@prisma/client';
 export async function seedAntecedentes(prisma: PrismaClient) {
   console.log('Creando antecedentes médicos...');
 
-  const pacientes = await prisma.usuario.findMany({
-    where: {
-      dni: { in: ['00000001', '00000002'] }
+  const antecedentesPorDni: Record<
+    string,
+    { alergias: string; enfermedadesCronicas: string; grupoSanguineo: string }
+  > = {
+    '00000001': {
+      alergias: 'Penicilina y derivados betalactámicos',
+      enfermedadesCronicas: 'Asma bronquial leve intermitente controlada',
+      grupoSanguineo: 'O+',
     },
-    include: { paciente: true }
-  });
+    '00000002': {
+      alergias: 'Sin alergias medicamentosas conocidas',
+      enfermedadesCronicas: 'Hipotiroidismo primario en tratamiento con Levotiroxina 50 mcg/día',
+      grupoSanguineo: 'A+',
+    },
+    '32456789': {
+      alergias: 'Antiinflamatorios no esteroideos (Ibuprofeno / Diclofenac)',
+      enfermedadesCronicas: 'Hipertensión arterial esencial controlada con Enalapril 10 mg',
+      grupoSanguineo: 'B+',
+    },
+    '40123456': {
+      alergias: 'Ninguna',
+      enfermedadesCronicas: 'Migraña episódica sin aura',
+      grupoSanguineo: 'O-',
+    },
+    '55123456': {
+      alergias: 'Ninguna',
+      enfermedadesCronicas: 'Sin patologías crónicas',
+      grupoSanguineo: 'O+',
+    },
+  };
 
-  for (const p of pacientes) {
-    if (p.paciente) {
+  for (const [dni, datos] of Object.entries(antecedentesPorDni)) {
+    const usuario = await prisma.usuario.findUnique({
+      where: { dni },
+      include: { paciente: true },
+    });
+
+    if (usuario?.paciente) {
       await prisma.antecedentesMedicos.upsert({
-        where: { idPaciente: p.paciente.idPaciente },
-        update: {
-          alergias: p.dni === '00000001' ? 'Penicilina' : 'Ninguna',
-          enfermedadesCronicas: p.dni === '00000001' ? 'Asma leve' : 'Ninguna',
-          grupoSanguineo: p.dni === '00000001' ? 'O+' : 'A-',
-        },
+        where: { idPaciente: usuario.paciente.idPaciente },
+        update: datos,
         create: {
-          idPaciente: p.paciente.idPaciente,
-          alergias: p.dni === '00000001' ? 'Penicilina' : 'Ninguna',
-          enfermedadesCronicas: p.dni === '00000001' ? 'Asma leve' : 'Ninguna',
-          grupoSanguineo: p.dni === '00000001' ? 'O+' : 'A-',
-        }
+          idPaciente: usuario.paciente.idPaciente,
+          ...datos,
+        },
       });
     }
   }
-  
+
   console.log('Antecedentes médicos creados con éxito.');
 }

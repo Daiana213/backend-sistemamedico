@@ -1,83 +1,114 @@
 import { PrismaClient } from '@prisma/client';
 
 export async function seedTurnos(prisma: PrismaClient) {
-  console.log('Configurando turnos, consultas y agendas de prueba...');
+  console.log('Configurando especialidades, obras sociales, agendas, turnos y consultas...');
 
-  // 1. Obtener IDs de pacientes, profesional y plan de obra social
-  const paciente1 = await prisma.usuario.findUnique({
-    where: { dni: '00000001' },
-    include: { paciente: true },
-  });
-
-  const paciente2 = await prisma.usuario.findUnique({
-    where: { dni: '00000002' },
-    include: { paciente: true },
-  });
-
-  const profesional1 = await prisma.usuario.findUnique({
+  const profQuiroga = await prisma.usuario.findUnique({
     where: { dni: '10000001' },
     include: { profesional: true },
   });
-
-  const planOsde = await prisma.plan.findFirst({
-    where: { nombre: '210' },
+  const profMendez = await prisma.usuario.findUnique({
+    where: { dni: '10000002' },
+    include: { profesional: true },
+  });
+  const profPereyra = await prisma.usuario.findUnique({
+    where: { dni: '10000003' },
+    include: { profesional: true },
   });
 
-  const especialidadClinica = await prisma.especialidad.findFirst({
-    where: { nombre: 'Clínica Médica' },
+  const pacJuan = await prisma.usuario.findUnique({
+    where: { dni: '00000001' },
+    include: { paciente: true },
+  });
+  const pacMaria = await prisma.usuario.findUnique({
+    where: { dni: '00000002' },
+    include: { paciente: true },
+  });
+  const pacCarlos = await prisma.usuario.findUnique({
+    where: { dni: '32456789' },
+    include: { paciente: true },
+  });
+  const pacSofia = await prisma.usuario.findUnique({
+    where: { dni: '40123456' },
+    include: { paciente: true },
   });
 
-  if (!paciente1?.paciente || !paciente2?.paciente || !profesional1?.profesional) {
-    console.log('No se pudieron crear turnos: Pacientes o profesional no encontrados.');
+  if (
+    !profQuiroga?.profesional ||
+    !profMendez?.profesional ||
+    !profPereyra?.profesional ||
+    !pacJuan?.paciente ||
+    !pacMaria?.paciente ||
+    !pacCarlos?.paciente ||
+    !pacSofia?.paciente
+  ) {
+    console.log('No se encontraron todos los perfiles requeridos para configurar turnos.');
     return;
   }
 
-  const idPaciente1 = paciente1.paciente.idPaciente;
-  const idPaciente2 = paciente2.paciente.idPaciente;
-  const idProfesional = profesional1.profesional.idProfesional;
+  const espClinica = await prisma.especialidad.findUnique({ where: { nombre: 'Clínica Médica' } });
+  const espCardio = await prisma.especialidad.findUnique({ where: { nombre: 'Cardiología' } });
+  const espImagenes = await prisma.especialidad.findUnique({
+    where: { nombre: 'Diagnóstico por Imágenes' },
+  });
+  const espTrauma = await prisma.especialidad.findUnique({ where: { nombre: 'Traumatología' } });
 
-  // 2. Asignar Obra Social y Plan a los pacientes si no la tienen (para que su perfil quede 100% completo)
-  if (planOsde) {
-    await prisma.paciente.update({
-      where: { idPaciente: idPaciente1 },
-      data: { idPlan: planOsde.idPlan, sexo: 'MASCULINO' as any },
-    });
-    await prisma.paciente.update({
-      where: { idPaciente: idPaciente2 },
-      data: { idPlan: planOsde.idPlan, sexo: 'FEMENINO' as any },
+  const asignacionesEsp = [
+    { idProfesional: profQuiroga.profesional.idProfesional, idEspecialidad: espClinica?.idEspecialidad },
+    { idProfesional: profQuiroga.profesional.idProfesional, idEspecialidad: espImagenes?.idEspecialidad },
+    { idProfesional: profMendez.profesional.idProfesional, idEspecialidad: espCardio?.idEspecialidad },
+    { idProfesional: profMendez.profesional.idProfesional, idEspecialidad: espImagenes?.idEspecialidad },
+    { idProfesional: profPereyra.profesional.idProfesional, idEspecialidad: espTrauma?.idEspecialidad },
+  ];
+
+  for (const item of asignacionesEsp) {
+    if (!item.idEspecialidad) continue;
+    await prisma.profesionalEspecialidad.upsert({
+      where: {
+        idProfesional_idEspecialidad: {
+          idProfesional: item.idProfesional,
+          idEspecialidad: item.idEspecialidad,
+        },
+      },
+      update: { estado: 'ACTIVO' as any },
+      create: {
+        idProfesional: item.idProfesional,
+        idEspecialidad: item.idEspecialidad,
+        fechaAsignacion: new Date(),
+        estado: 'ACTIVO' as any,
+      },
     });
   }
 
-  // 3. Asignar especialidad y agenda semanal al profesional
-  if (especialidadClinica) {
-    const espExiste = await prisma.profesionalEspecialidad.findUnique({
-      where: {
-        idProfesional_idEspecialidad: {
-          idProfesional,
-          idEspecialidad: especialidadClinica.idEspecialidad,
-        },
-      },
-    });
+  // Vincular todas las obras sociales activas a todos los profesionales
+  const obrasSociales = await prisma.obraSocial.findMany({ where: { estado: 'ACTIVO' } });
+  const listaProfesionales = [
+    profQuiroga.profesional.idProfesional,
+    profMendez.profesional.idProfesional,
+    profPereyra.profesional.idProfesional,
+  ];
 
-    if (!espExiste) {
-      await prisma.profesionalEspecialidad.create({
-        data: {
+  for (const idProfesional of listaProfesionales) {
+    for (const os of obrasSociales) {
+      await prisma.profesionalObraSocial.upsert({
+        where: {
+          idProfesional_idObraSocial: {
+            idProfesional,
+            idObraSocial: os.idObraSocial,
+          },
+        },
+        update: { estado: 'ACTIVO' as any },
+        create: {
           idProfesional,
-          idEspecialidad: especialidadClinica.idEspecialidad,
+          idObraSocial: os.idObraSocial,
           fechaAsignacion: new Date(),
-          estado: 'ACTIVO',
+          estado: 'ACTIVO' as any,
         },
       });
     }
-  }
 
-  // Configurar agenda semanal (Lunes a Viernes de 08:00 a 18:00)
-  for (let dia = 1; dia <= 5; dia++) {
-    const agendaExiste = await prisma.agendaProfesional.findFirst({
-      where: { idProfesional, diaSemana: dia },
-    });
-
-    if (!agendaExiste) {
+    // Agenda semanal Lunes a Viernes de 08:00 a 18:00
+    for (let dia = 1; dia <= 5; dia++) {
       await prisma.agendaProfesional.create({
         data: {
           idProfesional,
@@ -85,83 +116,138 @@ export async function seedTurnos(prisma: PrismaClient) {
           horaInicio: '08:00',
           horaFin: '18:00',
           duracionTurnoMinutos: 30,
-          estado: 'ACTIVO',
+          estado: 'ACTIVO' as any,
         },
       });
     }
   }
 
-  // 4. Fechas de turnos dinámicas (Hoy, Ayer y Próximos días)
   const hoy = new Date();
-  const turnoHoy1 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 10, 0, 0);
-  const turnoHoy2 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 11, 30, 0);
-
   const ayer = new Date(hoy);
   ayer.setDate(ayer.getDate() - 1);
-  const turnoAyer = new Date(ayer.getFullYear(), ayer.getMonth(), ayer.getDate(), 15, 0, 0);
+  const haceTresDias = new Date(hoy);
+  haceTresDias.setDate(haceTresDias.getDate() - 3);
+  const manana = new Date(hoy);
+  manana.setDate(manana.getDate() + 1);
+
+  const fHora = (base: Date, h: number, m: number) =>
+    new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, m, 0);
 
   const turnosCrear = [
-    // Turno de HOY a las 10:00 para Paciente 1 (CONFIRMADO - listo para atender en Agenda Profesional)
+    // Turnos de HOY para Dr. Martín Quiroga (10000001)
     {
-      idPaciente: idPaciente1,
-      idProfesional,
-      fechaHora: turnoHoy1,
+      idPaciente: pacJuan.paciente.idPaciente,
+      idProfesional: profQuiroga.profesional.idProfesional,
+      fechaHora: fHora(hoy, 9, 30),
       estado: 'CONFIRMADO' as any,
+      presente: true,
+      fechaLlegada: fHora(hoy, 9, 20),
+      numeroAutorizacion: 'AUT-2026-9001',
     },
-    // Turno de HOY a las 11:30 para Paciente 2 (SOLICITADO)
     {
-      idPaciente: idPaciente2,
-      idProfesional,
-      fechaHora: turnoHoy2,
+      idPaciente: pacMaria.paciente.idPaciente,
+      idProfesional: profQuiroga.profesional.idProfesional,
+      fechaHora: fHora(hoy, 10, 30),
+      estado: 'CONFIRMADO' as any,
+      presente: true,
+      fechaLlegada: fHora(hoy, 10, 22),
+      numeroAutorizacion: 'AUT-2026-9002',
+    },
+    {
+      idPaciente: pacCarlos.paciente.idPaciente,
+      idProfesional: profQuiroga.profesional.idProfesional,
+      fechaHora: fHora(hoy, 11, 30),
       estado: 'SOLICITADO' as any,
+      numeroAutorizacion: 'AUT-2026-9003',
     },
-    // Turno previo completado con consulta cargada (para verificar Consultas Anteriores en Historia Clínica)
     {
-      idPaciente: idPaciente1,
-      idProfesional,
-      fechaHora: turnoAyer,
+      idPaciente: pacSofia.paciente.idPaciente,
+      idProfesional: profQuiroga.profesional.idProfesional,
+      fechaHora: fHora(hoy, 14, 0),
+      estado: 'CONFIRMADO' as any,
+      numeroAutorizacion: 'AUT-2026-9004',
+    },
+    // Turnos con Dra. Valeria Méndez (10000002)
+    {
+      idPaciente: pacJuan.paciente.idPaciente,
+      idProfesional: profMendez.profesional.idProfesional,
+      fechaHora: fHora(hoy, 10, 0),
+      estado: 'CONFIRMADO' as any,
+      numeroAutorizacion: 'AUT-2026-9005',
+    },
+    {
+      idPaciente: pacCarlos.paciente.idPaciente,
+      idProfesional: profMendez.profesional.idProfesional,
+      fechaHora: fHora(ayer, 16, 0),
       estado: 'COMPLETADO' as any,
+      presente: true,
       consulta: {
-        motivoConsulta: 'Dolor lumbar persistente post esfuerzo físico y rigidez matinal.',
-        diagnostico: 'Lumbalgia mecánica postural L4-L5.',
-        tratamiento:
-          'Kinesioterapia motora 10 sesiones, paracetamol 500 mg cada 8 hs según dolor. Se solicita resonancia lumbar y reposo relativo.',
-        notasAdicionales:
-          'Paciente refiere antecedentes de asma leve controlada. Se entrega orden médica para estudio por imágenes.',
+        motivoConsulta: 'Control periódico de hipertensión arterial y evaluación de estudios de tórax.',
+        diagnostico: 'Hipertensión arterial esencial compensada (TA 125/80 mmHg).',
+        tratamiento: 'Continuar con Enalapril 10 mg cada 24 hs, dieta hiposódica y actividad aeróbica 30 min diarios.',
+        notasAdicionales: 'Se revisaron radiografía digital de tórax y tomografía sin hallazgos patológicos agudos.',
       },
+    },
+    // Turnos con Dr. Santiago Pereyra (10000003)
+    {
+      idPaciente: pacJuan.paciente.idPaciente,
+      idProfesional: profPereyra.profesional.idProfesional,
+      fechaHora: fHora(haceTresDias, 15, 0),
+      estado: 'COMPLETADO' as any,
+      presente: true,
+      consulta: {
+        motivoConsulta: 'Gonalgia derecha post actividad deportiva e inestabilidad leve.',
+        diagnostico: 'Distensión capsuloligamentaria leve de rodilla derecha sin lesión meniscal.',
+        tratamiento: 'Fisioterapia y rehabilitación kinésica 10 sesiones. Crioterapia local.',
+        notasAdicionales: 'Resonancia magnética y tomografía articular muestran estructuras meniscales y cruzados conservados.',
+      },
+    },
+    {
+      idPaciente: pacMaria.paciente.idPaciente,
+      idProfesional: profQuiroga.profesional.idProfesional,
+      fechaHora: fHora(ayer, 11, 0),
+      estado: 'COMPLETADO' as any,
+      presente: true,
+      consulta: {
+        motivoConsulta: 'Control clínico anual y revisión de estudios diagnósticos por imágenes.',
+        diagnostico: 'Paciente clínicamente estable, eutiroidea bajo tratamiento sustitutivo.',
+        tratamiento: 'Mantener Levotiroxina 50 mcg en ayunas. Control en 6 meses.',
+        notasAdicionales: 'Radiografía de tórax y resonancia cerebral dentro de parámetros normales.',
+      },
+    },
+    {
+      idPaciente: pacSofia.paciente.idPaciente,
+      idProfesional: profMendez.profesional.idProfesional,
+      fechaHora: fHora(manana, 9, 0),
+      estado: 'CONFIRMADO' as any,
+      numeroAutorizacion: 'AUT-2026-9010',
     },
   ];
 
   for (const item of turnosCrear) {
-    const existe = await prisma.turno.findFirst({
-      where: {
-        idProfesional,
+    const nuevoTurno = await prisma.turno.create({
+      data: {
+        idPaciente: item.idPaciente,
+        idProfesional: item.idProfesional,
         fechaHora: item.fechaHora,
+        estado: item.estado,
+        presente: item.presente ?? false,
+        fechaLlegada: item.fechaLlegada ?? null,
+        numeroAutorizacion: item.numeroAutorizacion ?? null,
       },
     });
 
-    if (!existe) {
-      const nuevoTurno = await prisma.turno.create({
+    if (item.consulta) {
+      await prisma.consulta.create({
         data: {
-          idPaciente: item.idPaciente,
-          idProfesional: item.idProfesional,
-          fechaHora: item.fechaHora,
-          estado: item.estado,
+          idTurno: nuevoTurno.idTurno,
+          motivoConsulta: item.consulta.motivoConsulta,
+          diagnostico: item.consulta.diagnostico,
+          tratamiento: item.consulta.tratamiento,
+          notasAdicionales: item.consulta.notasAdicionales,
+          fechaRealizacion: item.fechaHora,
         },
       });
-
-      if (item.consulta) {
-        await prisma.consulta.create({
-          data: {
-            idTurno: nuevoTurno.idTurno,
-            motivoConsulta: item.consulta.motivoConsulta,
-            diagnostico: item.consulta.diagnostico,
-            tratamiento: item.consulta.tratamiento,
-            notasAdicionales: item.consulta.notasAdicionales,
-            fechaRealizacion: item.fechaHora,
-          },
-        });
-      }
     }
   }
 

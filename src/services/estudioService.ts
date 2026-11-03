@@ -85,8 +85,8 @@ export function construirMetadatosPacs(codigo: string) {
   // Un StudyInstanceUID estándar DICOM se compone de números separados por puntos (ej. 1.2.840.113619...)
   const esDicomUid = /^\d+(\.\d+)+$/.test(codigoLimpio);
 
-  const ohifViewerBaseUrl = process.env.OHIF_VIEWER_URL || null;
-  const orthancBaseUrl = process.env.ORTHANC_URL || null;
+  const ohifViewerBaseUrl = process.env.OHIF_VIEWER_URL || 'http://localhost:3005';
+  const orthancBaseUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
 
   return {
     tipoIdentificador: esDicomUid ? 'DICOM_STUDY_INSTANCE_UID' : 'CODIGO_ESTUDIO',
