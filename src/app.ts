@@ -16,8 +16,26 @@ import turnoRoutes from './routes/turnoRoutes';
 import consultaRoutes from './routes/consultaRoutes';
 import reporteRoutes from './routes/reporteRoutes';
 import estudioRoutes from './routes/estudioRoutes';
+import { establecerUrlBaseBackend } from './services/pacsService';
+import { renderizarVisorDicom } from './controllers/estudioController';
 
 const app: Application = express();
+
+app.set('trust proxy', true);
+
+app.use((req, _res, next) => {
+  const protoHeader = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(protoHeader)
+    ? protoHeader[0]
+    : typeof protoHeader === 'string'
+    ? protoHeader.split(',')[0].trim()
+    : req.protocol || 'http';
+  const host = req.get('x-forwarded-host') || req.get('host');
+  if (host) {
+    establecerUrlBaseBackend(`${proto}://${host}`);
+  }
+  next();
+});
 
 
 // Cabeceras de seguridad HTTP por default (deshabilitando CSP estricto para permitir Swagger UI)
@@ -77,6 +95,10 @@ apiRouter.use('/estudios', estudioRoutes);
 apiRouter.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
+
+// Visor DICOM PACS Web integrado para el despliegue (accesible en /viewer y /estudios/visor)
+apiRouter.get('/viewer', renderizarVisorDicom);
+apiRouter.get('/estudios/visor', renderizarVisorDicom);
 
 // Montaje con prefijo versionado /api/v1, prefijo /api y soporte retroactivo en raíz /
 app.use('/api/v1', apiRouter);

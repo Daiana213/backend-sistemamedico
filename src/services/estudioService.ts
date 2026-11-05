@@ -6,8 +6,9 @@ import {
   EstudioAdminCrearInput,
   EstudioActualizarInput,
 } from '../validations/estudioValidation';
-import { buscarEstudioEnPacs } from './pacsService';
+import { buscarEstudioEnPacs, obtenerUrlBaseVisor } from './pacsService';
 import { generarPdfInformeEstudio } from '../utils/pdfInformeEstudio';
+import { DatosVisorDicom } from '../utils/visorDicomHtml';
 
 let tablaVerificada = false;
 
@@ -80,20 +81,21 @@ export function generarCodigoEstudio(): string {
  * Construye los metadatos de integración desacoplada con servidores PACS (Orthanc / Dcm4chee)
  * y visualizadores DICOM web zero-footprint (OHIF Viewer / DWV) a partir del código o StudyInstanceUID.
  */
-export function construirMetadatosPacs(codigo: string) {
+export function construirMetadatosPacs(codigo: string, idEstudio?: number) {
   const codigoLimpio = codigo.trim();
   // Un StudyInstanceUID estándar DICOM se compone de números separados por puntos (ej. 1.2.840.113619...)
   const esDicomUid = /^\d+(\.\d+)+$/.test(codigoLimpio);
 
-  const ohifViewerBaseUrl = process.env.OHIF_VIEWER_URL || 'http://localhost:3005';
+  const ohifViewerBaseUrl = obtenerUrlBaseVisor();
   const orthancBaseUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+  const queryParams = `StudyInstanceUIDs=${encodeURIComponent(codigoLimpio)}${
+    idEstudio ? `&idEstudio=${idEstudio}` : ''
+  }`;
 
   return {
     tipoIdentificador: esDicomUid ? 'DICOM_STUDY_INSTANCE_UID' : 'CODIGO_ESTUDIO',
     studyInstanceUid: codigoLimpio,
-    urlVisualizadorOhif: ohifViewerBaseUrl
-      ? `${ohifViewerBaseUrl.replace(/\/$/, '')}/viewer?StudyInstanceUIDs=${encodeURIComponent(codigoLimpio)}`
-      : null,
+    urlVisualizadorOhif: `${ohifViewerBaseUrl}/viewer?${queryParams}`,
     urlOrthancDicomWeb: orthancBaseUrl
       ? `${orthancBaseUrl.replace(/\/$/, '')}/dicom-web/studies/${encodeURIComponent(codigoLimpio)}`
       : null,
@@ -124,7 +126,7 @@ function mapearEstudioRespuesta(estudio: {
     estado: estudio.estado,
     fechaCarga: estudio.fechaCarga,
     fechaActualizacion: estudio.fechaActualizacion,
-    integracionPacs: construirMetadatosPacs(estudio.codigo),
+    integracionPacs: construirMetadatosPacs(estudio.codigo, estudio.idEstudio),
   };
 }
 
@@ -514,7 +516,7 @@ export async function listarTodosLosEstudiosAdmin(filtros: {
         ? `${est.paciente.plan.obraSocial.nombre} - ${est.paciente.plan.nombre}`
         : 'Particular',
     },
-    integracionPacs: construirMetadatosPacs(est.codigo),
+    integracionPacs: construirMetadatosPacs(est.codigo, est.idEstudio),
   }));
 }
 
@@ -994,6 +996,35 @@ export async function consultarEstadoEstudioEnPacs(
 ) {
   await asegurarTablaEstudioMedico();
 
+  const includePaciente = {
+    paciente: {
+      include: {
+        usuario: {
+          select: {
+            nombre: true,
+            apellido: true,
+            dni: true,
+          },
+        },
+        plan: {
+          include: {
+            obraSocial: true,
+          },
+        },
+      },
+    },
+    profesional: {
+      include: {
+        usuario: {
+          select: {
+            nombre: true,
+            apellido: true,
+          },
+        },
+      },
+    },
+  };
+
   let estudio;
   if (rol === 'PACIENTE') {
     const paciente = await obtenerPacientePorUsuario(idUsuario);
@@ -1003,6 +1034,7 @@ export async function consultarEstadoEstudioEnPacs(
         idPaciente: paciente.idPaciente,
         estado: 'ACTIVO',
       },
+      include: includePaciente,
     });
   } else if (rol === 'PROFESIONAL') {
     estudio = await prisma.estudioMedico.findFirst({
@@ -1010,6 +1042,7 @@ export async function consultarEstadoEstudioEnPacs(
         idEstudio,
         estado: 'ACTIVO',
       },
+      include: includePaciente,
     });
     if (estudio) {
       await verificarVinculoProfesionalPaciente(idUsuario, estudio.idPaciente);
@@ -1020,6 +1053,7 @@ export async function consultarEstadoEstudioEnPacs(
       where: {
         idEstudio,
       },
+      include: includePaciente,
     });
   }
 
@@ -1027,10 +1061,35 @@ export async function consultarEstadoEstudioEnPacs(
     throw new AppError('Estudio médico no encontrado.', 404);
   }
 
-  const resultadoPacs = await buscarEstudioEnPacs(estudio.codigo);
+  const resultadoPacs = await buscarEstudioEnPacs(estudio.codigo, {
+    idEstudio: estudio.idEstudio,
+    nombre: estudio.nombre,
+    fechaCarga: estudio.fechaCarga,
+  });
 
   return {
-    estudio: mapearEstudioRespuesta(estudio),
+    estudio: {
+      ...mapearEstudioRespuesta(estudio),
+      paciente: estudio.paciente
+        ? {
+            idPaciente: estudio.paciente.idPaciente,
+            nombreCompleto: `${estudio.paciente.usuario.nombre} ${estudio.paciente.usuario.apellido}`,
+            dni: estudio.paciente.usuario.dni,
+            sexo: estudio.paciente.sexo,
+            fechaNacimiento: estudio.paciente.fechaNacimiento,
+            obraSocial: estudio.paciente.plan
+              ? `${estudio.paciente.plan.obraSocial.nombre} - ${estudio.paciente.plan.nombre}`
+              : 'Particular',
+          }
+        : null,
+      profesional: estudio.profesional
+        ? {
+            idProfesional: estudio.profesional.idProfesional,
+            nombreCompleto: `${estudio.profesional.usuario.nombre} ${estudio.profesional.usuario.apellido}`,
+            matricula: estudio.profesional.matricula,
+          }
+        : null,
+    },
     pacs: resultadoPacs,
   };
 }
@@ -1092,4 +1151,104 @@ export async function generarInformePdfEstudio(
     paciente: estudio.paciente,
     profesional: estudio.profesional,
   });
+}
+
+export async function obtenerDatosParaVisorDicom(params: {
+  idEstudio?: number;
+  studyInstanceUid?: string;
+}): Promise<DatosVisorDicom> {
+  await asegurarTablaEstudioMedico();
+
+  const uid = (params.studyInstanceUid || '').trim();
+  const id = params.idEstudio;
+
+  let estudio = null;
+
+  if (id && !Number.isNaN(id)) {
+    estudio = await prisma.estudioMedico.findFirst({
+      where: { idEstudio: id },
+      include: {
+        paciente: {
+          include: {
+            usuario: true,
+            plan: { include: { obraSocial: true } },
+          },
+        },
+        profesional: {
+          include: { usuario: true },
+        },
+      },
+    });
+  }
+
+  if (!estudio && uid) {
+    estudio = await prisma.estudioMedico.findFirst({
+      where: { codigo: uid },
+      include: {
+        paciente: {
+          include: {
+            usuario: true,
+            plan: { include: { obraSocial: true } },
+          },
+        },
+        profesional: {
+          include: { usuario: true },
+        },
+      },
+    });
+  }
+
+  if (estudio) {
+    const pacsInfo = await buscarEstudioEnPacs(estudio.codigo, {
+      idEstudio: estudio.idEstudio,
+      nombre: estudio.nombre,
+      fechaCarga: estudio.fechaCarga,
+    });
+
+    return {
+      idEstudio: estudio.idEstudio,
+      codigo: estudio.codigo,
+      nombre: estudio.nombre,
+      observacion: estudio.observacion,
+      fechaCarga: estudio.fechaCarga,
+      modalidad: pacsInfo.metadatos?.modalidades?.[0] || 'DX',
+      numeroAcceso:
+        pacsInfo.metadatos?.numeroAcceso ||
+        `ACC-${String(estudio.idEstudio).padStart(5, '0')}`,
+      paciente: {
+        nombreCompleto: `${estudio.paciente.usuario.nombre} ${estudio.paciente.usuario.apellido}`,
+        dni: estudio.paciente.usuario.dni,
+        sexo: estudio.paciente.sexo,
+        fechaNacimiento: estudio.paciente.fechaNacimiento,
+        obraSocial: estudio.paciente.plan
+          ? `${estudio.paciente.plan.obraSocial.nombre} - ${estudio.paciente.plan.nombre}`
+          : 'Particular',
+      },
+      profesional: estudio.profesional
+        ? {
+            nombreCompleto: `${estudio.profesional.usuario.nombre} ${estudio.profesional.usuario.apellido}`,
+            matricula: estudio.profesional.matricula,
+          }
+        : null,
+    };
+  }
+
+  return {
+    idEstudio: id || null,
+    codigo: uid || '1.2.840.113619.2.55.3.60468842.2026.101',
+    nombre: 'Estudio de Diagnóstico por Imágenes DICOM',
+    observacion:
+      'Estudio adquirido en modalidad digital DICOM y almacenado bajo protocolo PACS.',
+    fechaCarga: new Date(),
+    modalidad: 'DX',
+    numeroAcceso: `ACC-${uid.slice(-5) || '1001'}`,
+    paciente: {
+      nombreCompleto: 'Paciente del Sanatorio Antonia',
+      dni: '—',
+      sexo: null,
+      fechaNacimiento: null,
+      obraSocial: 'Cobertura Registrada',
+    },
+    profesional: null,
+  };
 }

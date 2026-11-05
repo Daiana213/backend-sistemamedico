@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { AppError } from '../utils/AppError';
 import * as estudioService from '../services/estudioService';
 import * as pacsService from '../services/pacsService';
+import { generarHtmlVisorDicom } from '../utils/visorDicomHtml';
 
 function parsearId(valor: string | string[] | undefined, nombreCampo: string): number {
   const raw = Array.isArray(valor) ? valor[0] : valor;
@@ -219,4 +220,36 @@ export const descargarInformePdf = asyncHandler(async (req: Request, res: Respon
     `inline; filename="informe_estudio_${idEstudio}.pdf"`
   );
   res.status(200).send(bufferPdf);
+});
+
+// HU21: Renderizar Visor DICOM PACS Web interactivo integrado (sin depender de Docker local)
+export const renderizarVisorDicom = asyncHandler(async (req: Request, res: Response) => {
+  const studyInstanceUid =
+    (typeof req.query.StudyInstanceUIDs === 'string' && req.query.StudyInstanceUIDs) ||
+    (typeof req.query.studyInstanceUid === 'string' && req.query.studyInstanceUid) ||
+    (typeof req.query.codigo === 'string' && req.query.codigo) ||
+    '';
+
+  const idEstudioRaw =
+    typeof req.query.idEstudio === 'string' ? Number.parseInt(req.query.idEstudio, 10) : undefined;
+  const idEstudio = idEstudioRaw && !Number.isNaN(idEstudioRaw) ? idEstudioRaw : undefined;
+
+  if (!studyInstanceUid && !idEstudio) {
+    res
+      .status(403)
+      .setHeader('Content-Type', 'text/html; charset=utf-8')
+      .send(
+        '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Acceso restringido</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}.card{background:#1e293b;padding:32px;border-radius:12px;max-width:460px;box-shadow:0 10px 25px rgba(0,0,0,.4)}h1{font-size:20px;margin:0 0 12px;color:#38bdf8}p{font-size:14px;line-height:1.5;color:#cbd5e1;margin:0}</style></head><body><div class="card"><h1>Visualizacion individual de estudio</h1><p>Por privacidad medica, el listado general de estudios esta deshabilitado. Seleccione un estudio especifico desde el Sistema Medico para visualizarlo.</p></div></body></html>'
+      );
+    return;
+  }
+
+  const datos = await estudioService.obtenerDatosParaVisorDicom({
+    idEstudio,
+    studyInstanceUid,
+  });
+
+  const html = generarHtmlVisorDicom(datos);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(200).send(html);
 });

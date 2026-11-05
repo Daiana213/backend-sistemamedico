@@ -8,6 +8,9 @@ const dicomWebRoot = `${window.location.origin}/dicom-web`;
 window.config = {
   routerBasename: '/',
   showStudyList: false,
+  dangerouslyUseDynamicConfig: {
+    enabled: false,
+  },
   showWarningMessageForCrossOrigin: false,
   showCPUFallbackMessage: true,
   showLoadingIndicator: true,
