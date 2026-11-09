@@ -1,6 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
+import {
+  generarArchivoExcelReporte as generarExcelEstilizado,
+  generarArchivoPdfReporte as generarPdfEstilizado,
+} from '../utils/exportadorReporteMetricas';
 
 // Zona horaria de Argentina (UTC-3 fija todo el año)
 const OFFSET_ARGENTINA = '-03:00';
@@ -1481,7 +1485,7 @@ export function generarArchivoExcelReporte(
   </Worksheet>
 </Workbook>`;
 
-  return Buffer.from(xml, 'utf-8');
+  return generarExcelEstilizado(panel);
 }
 
 function sanitizarTextoPdf(texto: string): string {
@@ -1584,5 +1588,5 @@ export function generarArchivoPdfReporte(
   }
   pdf += `trailer\n<< /Size ${objetos.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
 
-  return Buffer.from(pdf, 'utf-8');
+  return generarPdfEstilizado(panel);
 }

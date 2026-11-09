@@ -6,6 +6,10 @@ import {
   generarReporteBodySchema,
 } from '../validations/reporteValidation';
 import * as reporteService from '../services/reporteService';
+import {
+  generarArchivoExcelReporte,
+  generarArchivoPdfReporte,
+} from '../utils/exportadorReporteMetricas';
 
 function parsearFiltrosDesdeQuery(req: Request): reporteService.FiltrosMetricas {
   const resultado = filtroMetricasQuerySchema.safeParse({
@@ -128,7 +132,7 @@ function enviarArchivoExportado(
   const sufijoFecha = `${panel.periodo.fechaInicio}_a_${panel.periodo.fechaFin}`;
 
   if (formato === 'pdf') {
-    const bufferPdf = reporteService.generarArchivoPdfReporte(panel);
+    const bufferPdf = generarArchivoPdfReporte(panel);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -139,7 +143,7 @@ function enviarArchivoExportado(
   }
 
   if (formato === 'excel' || formato === 'xlsx' || formato === 'xls') {
-    const bufferExcel = reporteService.generarArchivoExcelReporte(panel);
+    const bufferExcel = generarArchivoExcelReporte(panel);
     res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
