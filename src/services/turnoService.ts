@@ -15,6 +15,7 @@ import {
   enviarNotificacionTurnoReprogramado,
   enviarNotificacionTurnoCancelado,
 } from './email.service';
+import { procesarRecordatoriosProximos } from './recordatorioService';
 
 /**
  * Servicio para la creación y gestión de turnos médicos.
@@ -187,7 +188,7 @@ export async function crearTurno(
     throw error;
   }
 
-  const emailPaciente = nuevoTurno.paciente?.usuario?.email;
+  const emailPaciente = (nuevoTurno.paciente?.usuario?.email || nuevoTurno.paciente?.emailAlternativo || '').trim();
   if (emailPaciente) {
     try {
       await enviarNotificacionTurnoReservado({
@@ -199,6 +200,12 @@ export async function crearTurno(
     } catch (error) {
       console.error('Error al enviar email de confirmación de turno:', error);
     }
+  }
+
+  try {
+    await procesarRecordatoriosProximos(ip || '127.0.0.1');
+  } catch (error) {
+    console.error('Error al procesar recordatorios próximos tras crear turno:', error);
   }
 
   const coberturaSimulada = await simularCoberturaYRequisitosTurno({
@@ -262,6 +269,12 @@ export async function crearTurnoPorProfesional(
  * Listar turnos según el rol del usuario autenticado.
  */
 export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
+  try {
+    await procesarRecordatoriosProximos('127.0.0.1 (listar-turnos)');
+  } catch (error) {
+    console.error('Error al procesar recordatorios próximos al listar turnos:', error);
+  }
+
   if (usuarioAutenticado.rolActivo === 'PACIENTE') {
     const paciente = await prisma.paciente.findUnique({
       where: { idUsuario: usuarioAutenticado.idUsuario },
@@ -611,7 +624,7 @@ export async function reprogramarTurno(
     });
   });
 
-  const emailPaciente = turnoOriginal.paciente?.usuario?.email;
+  const emailPaciente = (turnoOriginal.paciente?.usuario?.email || turnoOriginal.paciente?.emailAlternativo || '').trim();
   if (emailPaciente) {
     try {
       await enviarNotificacionTurnoReprogramado({
@@ -624,6 +637,12 @@ export async function reprogramarTurno(
     } catch (error) {
       console.error('Error al enviar email de reprogramación de turno:', error);
     }
+  }
+
+  try {
+    await procesarRecordatoriosProximos('127.0.0.1 (reprogramar-turno)');
+  } catch (error) {
+    console.error('Error al procesar recordatorios próximos tras reprogramar turno:', error);
   }
 
   return {
@@ -825,7 +844,7 @@ export async function reprogramarTurnoAdmin(
     });
   });
 
-  const emailPaciente = turnoOriginal.paciente?.usuario?.email;
+  const emailPaciente = (turnoOriginal.paciente?.usuario?.email || turnoOriginal.paciente?.emailAlternativo || '').trim();
   if (emailPaciente) {
     try {
       await enviarNotificacionTurnoReprogramado({
@@ -838,6 +857,12 @@ export async function reprogramarTurnoAdmin(
     } catch (error) {
       console.error('Error al enviar email de reprogramación de turno:', error);
     }
+  }
+
+  try {
+    await procesarRecordatoriosProximos(ip || '127.0.0.1 (reprogramar-turno-admin)');
+  } catch (error) {
+    console.error('Error al procesar recordatorios próximos tras reprogramar turno por admin:', error);
   }
 
   return {

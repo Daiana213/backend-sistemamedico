@@ -16,7 +16,7 @@ if (!process.env.VERCEL) {
     });
 
     // HU23: Iniciar worker de recordatorios automáticos de turnos (24 hs antes)
-    iniciarWorkerRecordatorios(30 * 60 * 1000);
+    iniciarWorkerRecordatorios(60 * 1000);
   });
 
   server.on('error', (err: any) => {
