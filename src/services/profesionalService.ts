@@ -254,6 +254,7 @@ export async function listarProfesionales(idEspecialidad?: number, incluirInacti
         nombreCompleto: `${p.usuario.nombre} ${p.usuario.apellido}`,
         matricula: p.matricula,
         estado: p.estado,
+        puedeCargarEstudios: p.puedeCargarEstudios,
         especialidades: p.especialidades.map((e) => e.especialidad.nombre),
         especialidadesDetalle: p.especialidades.map((e) => ({
           idEspecialidad: e.especialidad.idEspecialidad,
@@ -289,6 +290,7 @@ export async function obtenerProfesionalPorId(idProfesional: number) {
     idUsuario: profesional.idUsuario,
     matricula: profesional.matricula,
     estado: profesional.estado,
+    puedeCargarEstudios: profesional.puedeCargarEstudios,
     fechaAlta: profesional.fechaAlta,
     fechaBaja: profesional.fechaBaja,
     telefonoAlternativo: profesional.telefonoAlternativo,
@@ -358,6 +360,7 @@ export async function editarProfesional(
     telefonoAlternativo: profesional.telefonoAlternativo,
     emailAlternativo: profesional.emailAlternativo,
     estado: profesional.estado,
+    puedeCargarEstudios: profesional.puedeCargarEstudios,
     especialidades: profesional.especialidades.map((e) => e.idEspecialidad),
   };
 
@@ -380,6 +383,9 @@ export async function editarProfesional(
         telefonoAlternativo: datos.telefonoAlternativo ?? null,
         emailAlternativo: datos.emailAlternativo ?? null,
         ...(datos.estado ? { estado: datos.estado } : {}),
+        ...(datos.puedeCargarEstudios !== undefined
+          ? { puedeCargarEstudios: datos.puedeCargarEstudios }
+          : {}),
       },
     });
 

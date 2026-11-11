@@ -38,6 +38,7 @@ export const editarProfesionalSchema = z.object({
     .array(z.number().int().positive())
     .optional(),
   estado: z.enum(['ACTIVO', 'INACTIVO']).optional(),
+  puedeCargarEstudios: z.boolean().optional(),
 });
 
 export type EditarProfesionalInput = z.infer<typeof editarProfesionalSchema>;

@@ -32,6 +32,7 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
     select: {
       idProfesional: true,
       matricula: true,
+      puedeCargarEstudios: true,
       usuario: { select: { nombre: true, apellido: true } },
     },
   });
@@ -127,8 +128,10 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
 
   return {
     profesional: {
+      idProfesional: profesional.idProfesional,
       nombreCompleto: `${profesional.usuario.nombre} ${profesional.usuario.apellido}`,
       matricula: profesional.matricula,
+      puedeCargarEstudios: profesional.puedeCargarEstudios,
     },
     resumen: {
       totalTurnos: turnosMapeados.length,
