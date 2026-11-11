@@ -121,11 +121,14 @@ async function emitirTokens(
     };
   }
 
+  const nombreCompleto = usuario ? `${usuario.nombre} ${usuario.apellido}`.trim() : undefined;
+
   return {
     accessToken,
     refreshToken,
     rolActivo: rolInfo.rol,
     primerLogin,
+    ...(nombreCompleto && { nombreCompleto }),
     ...infoPerfilPaciente,
   };
 }
@@ -199,6 +202,7 @@ export async function login({ dni, password }: LoginInput) {
     preSessionToken,
     rolesDisponibles: rolesDisponibles.map((r) => r.rol),
     primerLogin: usuario.primerLogin,
+    nombreCompleto: `${usuario.nombre} ${usuario.apellido}`.trim(),
   };
 }
 

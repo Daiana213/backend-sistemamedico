@@ -25,3 +25,32 @@ export const registrarAdministrativoSchema = z.object({
 });
 
 export type RegistrarAdministrativoInput = z.infer<typeof registrarAdministrativoSchema>;
+
+export const actualizarAdministrativoSchema = z
+  .object({
+    puesto: z
+      .string({ error: 'El puesto debe ser una cadena de texto.' })
+      .trim()
+      .min(1, 'El puesto no puede estar vacío.')
+      .max(100, 'El puesto no puede exceder los 100 caracteres.')
+      .optional(),
+    permisoGestionUsuarios: z
+      .boolean({
+        error: () => ({ message: 'El permiso de gestión debe ser un valor booleano.' }),
+      })
+      .optional(),
+    estado: z
+      .enum(['ACTIVO', 'INACTIVO'], {
+        error: () => ({ message: 'El estado debe ser ACTIVO o INACTIVO.' }),
+      })
+      .optional(),
+  })
+  .refine(
+    (datos) =>
+      datos.puesto !== undefined ||
+      datos.permisoGestionUsuarios !== undefined ||
+      datos.estado !== undefined,
+    { message: 'Debe enviar al menos un campo para actualizar.' }
+  );
+
+export type ActualizarAdministrativoInput = z.infer<typeof actualizarAdministrativoSchema>;
