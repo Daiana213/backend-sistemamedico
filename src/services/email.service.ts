@@ -1,4 +1,20 @@
+import crypto from 'crypto';
 import nodemailer, { Transporter } from 'nodemailer';
+import { obtenerUrlBaseBackend } from './pacsService';
+
+export function generarTokenConfirmacionTurno(idTurno: number): string {
+  const secret = process.env.JWT_ACCESS_SECRET || 'sanatorio-antonia-confirmacion-secret';
+  return crypto
+    .createHmac('sha256', secret)
+    .update(`confirmar-turno:${idTurno}`)
+    .digest('hex');
+}
+
+export function construirEnlaceConfirmacionTurno(idTurno: number): string {
+  const baseUrl = obtenerUrlBaseBackend();
+  const token = generarTokenConfirmacionTurno(idTurno);
+  return `${baseUrl}/turnos/${idTurno}/confirmar-asistencia?token=${token}`;
+}
 
 let transporter: Transporter | null = null;
 
@@ -347,13 +363,20 @@ export async function enviarNotificacionTurnoCancelado(datos: {
  * 8. Notificación de recordatorio automático de turno (HU23 - 24 horas antes)
  */
 export async function enviarRecordatorioTurno24hs(datos: {
+  idTurno?: number;
   emailPaciente: string;
   nombrePaciente: string;
   nombreProfesional: string;
   especialidad?: string;
   fechaHora: Date;
+  enlaceConfirmacion?: string;
 }) {
   const fechaFormateada = formatearFechaHoraTurno(datos.fechaHora);
+  const urlPortal = (process.env.FRONTEND_URL || 'https://frontend-sistemamedico.vercel.app').replace(/\/$/, '');
+  const enlaceConfirmacion =
+    datos.enlaceConfirmacion ||
+    (datos.idTurno ? construirEnlaceConfirmacionTurno(datos.idTurno) : `${urlPortal}/mis-turnos`);
+
   const titulo = 'Recordatorio: Mañana tenés un turno médico';
   const contenido = `
     <p style="margin:0 0 16px;line-height:1.6;color:#374151;">
@@ -368,6 +391,11 @@ export async function enviarRecordatorioTurno24hs(datos: {
       <div><strong>Fecha y hora:</strong> <span style="color:#166534;font-weight:700;">${fechaFormateada}</span></div>
       <div><strong>Lugar:</strong> Sanatorio Antonia - Sede Central (Av. Belgrano 1240)</div>
     </div>
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${enlaceConfirmacion}" style="display:inline-block;padding:14px 32px;background-color:#22a55c;color:#ffffff;text-decoration:none;font-weight:700;border-radius:999px;font-size:15px;">
+        Confirmar asistencia
+      </a>
+    </div>
     <p style="margin:0 0 12px;font-size:14px;color:#374151;line-height:1.5;">
       Por favor presentate en recepción 15 minutos antes de tu horario con tu DNI y credencial médica.
     </p>
@@ -379,7 +407,7 @@ export async function enviarRecordatorioTurno24hs(datos: {
   return enviarEmail({
     para: datos.emailPaciente,
     asunto: `Recordatorio de Turno para mañana - Dr./Dra. ${datos.nombreProfesional} - Sanatorio Antonia`,
-    texto: `Hola ${datos.nombrePaciente}, te recordamos tu turno médico para mañana ${fechaFormateada} con Dr./Dra. ${datos.nombreProfesional} en Sanatorio Antonia.`,
+    texto: `Hola ${datos.nombrePaciente}, te recordamos tu turno médico para mañana ${fechaFormateada} con Dr./Dra. ${datos.nombreProfesional} en Sanatorio Antonia. Podés confirmar tu asistencia ingresando a: ${enlaceConfirmacion}`,
     html: construirPlantillaBase(titulo, contenido),
   });
 }

@@ -115,6 +115,7 @@ export async function procesarRecordatoriosProximos(ip = '127.0.0.1'): Promise<R
       for (let intento = 1; intento <= 3; intento++) {
         try {
           await enviarRecordatorioTurno24hs({
+            idTurno: turno.idTurno,
             emailPaciente,
             nombrePaciente: `${paciente.nombre} ${paciente.apellido}`.trim(),
             nombreProfesional: `${profesional.nombre} ${profesional.apellido}`.trim(),

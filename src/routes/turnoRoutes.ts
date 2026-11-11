@@ -44,6 +44,23 @@ router.get(
   turnoController.listar
 );
 
+// HU23: Confirmación de asistencia desde el botón del correo de recordatorio o desde el portal
+router.get(
+  '/:id/confirmar-asistencia',
+  turnoController.confirmarAsistencia
+);
+
+router.post(
+  '/:id/confirmar-asistencia',
+  turnoController.confirmarAsistencia
+);
+
+router.patch(
+  '/:id/confirmar',
+  authenticate,
+  turnoController.confirmarAsistencia
+);
+
 // Recepción de pacientes: Registro de llegada en sala de espera (Administrativo)
 router.patch(
   '/:id/recepcion',

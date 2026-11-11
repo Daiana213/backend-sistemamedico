@@ -35,6 +35,26 @@ export function establecerUrlBaseBackend(url: string) {
   }
 }
 
+export function obtenerUrlBaseBackend(): string {
+  if (process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL.trim().replace(/\/$/, '');
+  }
+  if (urlBaseBackendDetectada) {
+    return urlBaseBackendDetectada;
+  }
+  if (process.env.VERCEL) {
+    return 'https://backend-sistemamedico.vercel.app';
+  }
+  if (process.env.RENDER_EXTERNAL_URL) {
+    return process.env.RENDER_EXTERNAL_URL.replace(/\/$/, '');
+  }
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    return `https://${process.env.RAILWAY_PUBLIC_DOMAIN.replace(/\/$/, '')}`;
+  }
+  const port = process.env.PORT || 3000;
+  return `http://localhost:${port}`;
+}
+
 export function obtenerUrlBaseVisor(): string {
   const envViewer = (process.env.OHIF_VIEWER_URL || '').trim().replace(/\/$/, '');
   if (envViewer && !envViewer.includes('localhost:3005') && !envViewer.includes('127.0.0.1:3005')) {

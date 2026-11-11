@@ -14,6 +14,8 @@ import {
   enviarNotificacionTurnoReservado,
   enviarNotificacionTurnoReprogramado,
   enviarNotificacionTurnoCancelado,
+  generarTokenConfirmacionTurno,
+  formatearFechaHoraTurno,
 } from './email.service';
 import { procesarRecordatoriosProximos } from './recordatorioService';
 
@@ -967,5 +969,105 @@ export async function registrarRecepcionTurno(
   return {
     mensaje: 'Llegada del paciente registrada correctamente. El paciente se encuentra en sala de espera.',
     turno: actualizado,
+  };
+}
+
+export async function confirmarAsistenciaTurno(
+  idTurno: number,
+  token?: string,
+  ip?: string
+) {
+  if (token) {
+    const tokenEsperado = generarTokenConfirmacionTurno(idTurno);
+    if (token !== tokenEsperado) {
+      throw new AppError('El enlace de confirmación de asistencia no es válido.', 400);
+    }
+  }
+
+  const turno = await prisma.turno.findUnique({
+    where: { idTurno },
+    include: {
+      paciente: { include: { usuario: true } },
+      profesional: { include: { usuario: true } },
+    },
+  });
+
+  if (!turno) {
+    throw new AppError('Turno no encontrado.', 404);
+  }
+
+  const nombrePaciente = `${turno.paciente.usuario.nombre} ${turno.paciente.usuario.apellido}`.trim();
+  const nombreProfesional = `${turno.profesional.usuario.nombre} ${turno.profesional.usuario.apellido}`.trim();
+  const fechaFormateada = formatearFechaHoraTurno(turno.fechaHora);
+
+  if (turno.estado === 'CANCELADO' || turno.estado === 'REPROGRAMADO') {
+    return {
+      confirmado: false,
+      estado: turno.estado,
+      mensaje: `Este turno no puede confirmarse porque se encuentra en estado ${turno.estado}.`,
+      detalle: {
+        idTurno: turno.idTurno,
+        paciente: nombrePaciente,
+        profesional: nombreProfesional,
+        fechaHora: turno.fechaHora,
+        fechaFormateada,
+        estado: turno.estado,
+      },
+    };
+  }
+
+  if (turno.estado === 'CONFIRMADO' || turno.estado === 'COMPLETADO') {
+    return {
+      confirmado: true,
+      estado: turno.estado,
+      mensaje: 'Tu asistencia a este turno médico ya se encontraba confirmada.',
+      detalle: {
+        idTurno: turno.idTurno,
+        paciente: nombrePaciente,
+        profesional: nombreProfesional,
+        fechaHora: turno.fechaHora,
+        fechaFormateada,
+        estado: turno.estado,
+      },
+    };
+  }
+
+  const actualizado = await prisma.$transaction(async (tx) => {
+    const t = await tx.turno.update({
+      where: { idTurno },
+      data: {
+        estado: 'CONFIRMADO',
+      },
+    });
+
+    await tx.auditoria.create({
+      data: {
+        idUsuario: turno.paciente.idUsuario,
+        fechaHora: new Date(),
+        accion: 'CONFIRMAR_ASISTENCIA_TURNO',
+        tablaAfectada: 'turno',
+        idRegistroAfectado: idTurno,
+        datosAnteriores: JSON.stringify({ estado: turno.estado }),
+        datosNuevos: JSON.stringify({ estado: 'CONFIRMADO' }),
+        ip,
+        descripcion: `Asistencia al turno #${idTurno} confirmada por el paciente ${nombrePaciente}.`,
+      },
+    });
+
+    return t;
+  });
+
+  return {
+    confirmado: true,
+    estado: actualizado.estado,
+    mensaje: 'Tu asistencia al turno médico fue confirmada exitosamente.',
+    detalle: {
+      idTurno: actualizado.idTurno,
+      paciente: nombrePaciente,
+      profesional: nombreProfesional,
+      fechaHora: actualizado.fechaHora,
+      fechaFormateada,
+      estado: actualizado.estado,
+    },
   };
 }
