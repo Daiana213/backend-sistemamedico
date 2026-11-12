@@ -19,6 +19,27 @@ import {
 } from './email.service';
 import { procesarRecordatoriosProximos } from './recordatorioService';
 
+let enumEnSalaDeEsperaVerificado = false;
+
+export async function asegurarEnumEnSalaDeEspera(): Promise<void> {
+  if (enumEnSalaDeEsperaVerificado) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      ALTER TYPE "estado_turno" ADD VALUE IF NOT EXISTS 'EN_SALA_DE_ESPERA';
+    `);
+    enumEnSalaDeEsperaVerificado = true;
+  } catch {
+    enumEnSalaDeEsperaVerificado = true;
+  }
+}
+
+export function formatearEstadoTurno(estado: string, presente?: boolean): string {
+  if (estado === 'EN_SALA_DE_ESPERA' || (presente && estado === 'CONFIRMADO')) {
+    return 'En sala de espera';
+  }
+  return estado;
+}
+
 /**
  * Servicio para la creación y gestión de turnos médicos.
  */
@@ -107,7 +128,7 @@ export async function crearTurno(
       idProfesional: datos.idProfesional,
       fechaHora: datos.fechaHora,
       estado: {
-        in: ['SOLICITADO', 'CONFIRMADO'],
+        in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'],
       },
     },
   });
@@ -125,7 +146,7 @@ export async function crearTurno(
       idPaciente,
       idProfesional: datos.idProfesional,
       estado: {
-        in: ['SOLICITADO', 'CONFIRMADO'],
+        in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'],
       },
     },
   });
@@ -351,6 +372,7 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
 
         return {
           ...t,
+          estado: formatearEstadoTurno(t.estado, t.presente),
           coberturaSimulada,
         };
       })
@@ -366,7 +388,7 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
       throw new AppError('No se encontró el perfil de profesional.', 404);
     }
 
-    return prisma.turno.findMany({
+    const turnos = await prisma.turno.findMany({
       where: { idProfesional: profesional.idProfesional },
       include: {
         paciente: {
@@ -391,10 +413,15 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
       },
       orderBy: { fechaHora: 'asc' },
     });
+
+    return turnos.map((t) => ({
+      ...t,
+      estado: formatearEstadoTurno(t.estado, t.presente),
+    }));
   }
 
   // Si es ADMINISTRATIVO, lista los turnos generales
-  return prisma.turno.findMany({
+  const turnosAdmin = await prisma.turno.findMany({
     include: {
       paciente: {
         include: {
@@ -428,6 +455,11 @@ export async function listarTurnos(usuarioAutenticado: AccessTokenPayload) {
     orderBy: { fechaHora: 'desc' },
     take: 100,
   });
+
+  return turnosAdmin.map((t) => ({
+    ...t,
+    estado: formatearEstadoTurno(t.estado, t.presente),
+  }));
 }
 
 /**
@@ -462,7 +494,7 @@ export async function cancelarTurno(idTurno: number, usuarioAutenticado: AccessT
   }
 
   // Validar estados permitidos
-  if (!['SOLICITADO', 'CONFIRMADO'].includes(turno.estado)) {
+  if (!['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'].includes(turno.estado)) {
     throw new AppError(`No se puede cancelar un turno en estado ${turno.estado}.`, 400);
   }
 
@@ -585,7 +617,7 @@ export async function reprogramarTurno(
       idProfesional: turnoOriginal.idProfesional,
       fechaHora: nuevaFechaHora,
       estado: {
-        in: ['SOLICITADO', 'CONFIRMADO'],
+        in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'],
       },
     },
   });
@@ -679,7 +711,7 @@ export async function cancelarTurnoAdmin(
     throw new AppError('Turno no encontrado.', 404);
   }
 
-  if (!['SOLICITADO', 'CONFIRMADO'].includes(turno.estado)) {
+  if (!['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'].includes(turno.estado)) {
     throw new AppError(`No se puede cancelar un turno en estado ${turno.estado}.`, 400);
   }
 
@@ -771,7 +803,7 @@ export async function reprogramarTurnoAdmin(
     throw new AppError('Turno no encontrado.', 404);
   }
 
-  if (!['SOLICITADO', 'CONFIRMADO'].includes(turnoOriginal.estado)) {
+  if (!['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'].includes(turnoOriginal.estado)) {
     throw new AppError(`No se puede reprogramar un turno en estado ${turnoOriginal.estado}.`, 400);
   }
 
@@ -787,7 +819,7 @@ export async function reprogramarTurnoAdmin(
       idProfesional: turnoOriginal.idProfesional,
       fechaHora: nuevaFechaHora,
       estado: {
-        in: ['SOLICITADO', 'CONFIRMADO'],
+        in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'],
       },
       idTurno: { not: idTurno },
     },
@@ -910,14 +942,20 @@ export async function registrarRecepcionTurno(
     throw new AppError('Turno no encontrado.', 404);
   }
 
-  if (turno.estado === 'CANCELADO' || turno.estado === 'REPROGRAMADO') {
+  if (
+    turno.estado === 'CANCELADO' ||
+    turno.estado === 'REPROGRAMADO' ||
+    turno.estado === 'COMPLETADO'
+  ) {
     throw new AppError(
       `No se puede registrar la recepción de un turno con estado ${turno.estado}.`,
       400
     );
   }
 
-  const nuevoEstado = turno.estado === 'SOLICITADO' ? 'CONFIRMADO' : turno.estado;
+  await asegurarEnumEnSalaDeEspera();
+
+  const nuevoEstado = 'EN_SALA_DE_ESPERA';
 
   const actualizado = await prisma.$transaction(async (tx) => {
     const dataUpdate: any = {
@@ -968,7 +1006,10 @@ export async function registrarRecepcionTurno(
 
   return {
     mensaje: 'Llegada del paciente registrada correctamente. El paciente se encuentra en sala de espera.',
-    turno: actualizado,
+    turno: {
+      ...actualizado,
+      estado: formatearEstadoTurno(actualizado.estado, actualizado.presente),
+    },
   };
 }
 
@@ -1016,10 +1057,15 @@ export async function confirmarAsistenciaTurno(
     };
   }
 
-  if (turno.estado === 'CONFIRMADO' || turno.estado === 'COMPLETADO') {
+  if (
+    turno.estado === 'CONFIRMADO' ||
+    turno.estado === 'EN_SALA_DE_ESPERA' ||
+    turno.estado === 'COMPLETADO'
+  ) {
+    const estadoFormateado = formatearEstadoTurno(turno.estado, turno.presente);
     return {
       confirmado: true,
-      estado: turno.estado,
+      estado: estadoFormateado,
       mensaje: 'Tu asistencia a este turno médico ya se encontraba confirmada.',
       detalle: {
         idTurno: turno.idTurno,
@@ -1027,7 +1073,7 @@ export async function confirmarAsistenciaTurno(
         profesional: nombreProfesional,
         fechaHora: turno.fechaHora,
         fechaFormateada,
-        estado: turno.estado,
+        estado: estadoFormateado,
       },
     };
   }

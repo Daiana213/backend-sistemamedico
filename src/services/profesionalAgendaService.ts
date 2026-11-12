@@ -2,6 +2,7 @@ import { prisma } from '../config/prisma';
 import { AppError } from '../utils/AppError';
 import { Prisma, EstadoTurno } from '@prisma/client';
 import { ConfigurarAgendaDTO } from '../validations/agendaValidation';
+import { formatearEstadoTurno } from './turnoService';
 
 export interface FiltrosAgenda {
   idUsuario: number;
@@ -49,7 +50,7 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
 
   // Filtro: Estado
   if (filtros.estado) {
-    const uppercaseEstado = filtros.estado.toUpperCase();
+    const uppercaseEstado = filtros.estado.trim().toUpperCase().replace(/\s+/g, '_');
     if (!Object.values(EstadoTurno).includes(uppercaseEstado as EstadoTurno)) {
       throw new AppError(
         `Estado inválido. Valores permitidos: ${Object.values(EstadoTurno).join(', ')}.`,
@@ -86,6 +87,8 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
       idTurno: true,
       fechaHora: true,
       estado: true,
+      presente: true,
+      fechaLlegada: true,
       motivoCancelacion: true,
       paciente: {
         select: {
@@ -113,7 +116,9 @@ export async function obtenerAgendaProfesional(filtros: FiltrosAgenda) {
   const turnosMapeados = turnos.map(turno => ({
     idTurno: turno.idTurno,
     fechaHora: turno.fechaHora,
-    estado: turno.estado,
+    estado: formatearEstadoTurno(turno.estado, turno.presente),
+    presente: turno.presente,
+    fechaLlegada: turno.fechaLlegada,
     motivoCancelacion: turno.motivoCancelacion,
     paciente: {
       idPaciente: turno.paciente.idPaciente,
@@ -208,7 +213,7 @@ async function obtenerTurnosAfectados(idProfesional: number, nuevasAgendas: Conf
     where: {
       idProfesional,
       fechaHora: { gte: hoy },
-      estado: { in: ['SOLICITADO', 'CONFIRMADO'] } // Mapeado a los estados en el schema
+      estado: { in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA'] }
     }
   });
 
@@ -324,7 +329,7 @@ export async function obtenerDisponibilidad(idProfesional: number, fecha: string
         lte: fin
       },
       estado: {
-        in: ['SOLICITADO', 'CONFIRMADO']
+        in: ['SOLICITADO', 'CONFIRMADO', 'EN_SALA_DE_ESPERA']
       }
     }
   });

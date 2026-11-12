@@ -46,47 +46,58 @@ export async function seedTurnos(prisma: PrismaClient) {
     return;
   }
 
-  const espClinica = await prisma.especialidad.findUnique({ where: { nombre: 'Clínica Médica' } });
-  const espCardio = await prisma.especialidad.findUnique({ where: { nombre: 'Cardiología' } });
-  const espImagenes = await prisma.especialidad.findUnique({
-    where: { nombre: 'Diagnóstico por Imágenes' },
+  const todosLosProfesionales = await prisma.profesional.findMany({
+    include: { usuario: true },
   });
-  const espTrauma = await prisma.especialidad.findUnique({ where: { nombre: 'Traumatología' } });
+  const profPorDni = new Map(
+    todosLosProfesionales.map((p) => [p.usuario.dni, p])
+  );
 
-  const asignacionesEsp = [
-    { idProfesional: profQuiroga.profesional.idProfesional, idEspecialidad: espClinica?.idEspecialidad },
-    { idProfesional: profQuiroga.profesional.idProfesional, idEspecialidad: espImagenes?.idEspecialidad },
-    { idProfesional: profMendez.profesional.idProfesional, idEspecialidad: espCardio?.idEspecialidad },
-    { idProfesional: profMendez.profesional.idProfesional, idEspecialidad: espImagenes?.idEspecialidad },
-    { idProfesional: profPereyra.profesional.idProfesional, idEspecialidad: espTrauma?.idEspecialidad },
+  const especialidadesDb = await prisma.especialidad.findMany();
+  const espPorNombre = new Map(
+    especialidadesDb.map((e) => [e.nombre, e.idEspecialidad])
+  );
+
+  const asignacionesPorDni: Array<{ dni: string; especialidad: string }> = [
+    { dni: '10000001', especialidad: 'Clínica Médica' },
+    { dni: '10000001', especialidad: 'Diagnóstico por Imágenes' },
+    { dni: '10000002', especialidad: 'Cardiología' },
+    { dni: '10000002', especialidad: 'Diagnóstico por Imágenes' },
+    { dni: '10000003', especialidad: 'Traumatología' },
+    { dni: '10000004', especialidad: 'Pediatría' },
+    { dni: '10000005', especialidad: 'Neurología' },
+    { dni: '10000006', especialidad: 'Dermatología' },
+    { dni: '10000007', especialidad: 'Oftalmología' },
+    { dni: '10000008', especialidad: 'Ginecología' },
+    { dni: '10000009', especialidad: 'Nutrición' },
+    { dni: '10000010', especialidad: 'Psiquiatría' },
+    { dni: '10000011', especialidad: 'Diagnóstico por Imágenes' },
   ];
 
-  for (const item of asignacionesEsp) {
-    if (!item.idEspecialidad) continue;
+  for (const item of asignacionesPorDni) {
+    const prof = profPorDni.get(item.dni);
+    const idEspecialidad = espPorNombre.get(item.especialidad);
+    if (!prof || !idEspecialidad) continue;
     await prisma.profesionalEspecialidad.upsert({
       where: {
         idProfesional_idEspecialidad: {
-          idProfesional: item.idProfesional,
-          idEspecialidad: item.idEspecialidad,
+          idProfesional: prof.idProfesional,
+          idEspecialidad,
         },
       },
       update: { estado: 'ACTIVO' as any },
       create: {
-        idProfesional: item.idProfesional,
-        idEspecialidad: item.idEspecialidad,
+        idProfesional: prof.idProfesional,
+        idEspecialidad,
         fechaAsignacion: new Date(),
         estado: 'ACTIVO' as any,
       },
     });
   }
 
-  // Vincular todas las obras sociales activas a todos los profesionales
+  // Vincular todas las obras sociales activas y agendas a todos los profesionales
   const obrasSociales = await prisma.obraSocial.findMany({ where: { estado: 'ACTIVO' } });
-  const listaProfesionales = [
-    profQuiroga.profesional.idProfesional,
-    profMendez.profesional.idProfesional,
-    profPereyra.profesional.idProfesional,
-  ];
+  const listaProfesionales = todosLosProfesionales.map((p) => p.idProfesional);
 
   for (const idProfesional of listaProfesionales) {
     for (const os of obrasSociales) {
